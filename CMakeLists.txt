@@ -10,11 +10,15 @@ HunterGate(
 project (light-ray)
 
 hunter_add_package(SDL2)
+hunter_add_package(Boost)
 find_package(SDL2 CONFIG REQUIRED)
+
+# Header-only libraries
+find_package(Boost CONFIG REQUIRED)
 
 add_executable(main main.cpp)
 
-target_link_libraries(main SDL2::SDL2main SDL2::SDL2)
+target_link_libraries(main SDL2::SDL2main SDL2::SDL2 Boost::boost)
 
 set(CMAKE_CXX_FLAGS "-std=c++17 -Wall")
 
