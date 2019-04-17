@@ -10,17 +10,24 @@ HunterGate(
 project (light-ray)
 
 hunter_add_package(SDL2)
-hunter_add_package(Boost)
 find_package(SDL2 CONFIG REQUIRED)
 
+hunter_add_package(Boost)
 # Header-only libraries
 find_package(Boost CONFIG REQUIRED)
 
+hunter_add_package(Eigen)
+find_package(Eigen3 CONFIG REQUIRED)
+
+hunter_add_package(range-v3)
+find_package(range-v3 CONFIG REQUIRED)
+
 add_executable(main main.cpp)
 
-target_link_libraries(main SDL2::SDL2main SDL2::SDL2 Boost::boost)
+target_link_libraries(main SDL2::SDL2main SDL2::SDL2 Boost::boost Eigen3::Eigen range-v3::range-v3)
 
-set(CMAKE_CXX_FLAGS "-std=c++17 -Wall")
+set(CMAKE_CXX_FLAGS "-std=c++17 -Wall -fdiagnostics-show-template-tree")
+set(CMAKE_BUILD_TYPE Debug)
 
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
