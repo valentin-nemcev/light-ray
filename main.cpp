@@ -1,12 +1,16 @@
 #include <Eigen/Dense>
+#include <Eigen/src/Core/Matrix.h>
 #include <SDL2/SDL.h>
 #include <boost/format.hpp>
 #include <iostream>
+#include <memory>
 #include <stdexcept>
 
 #define SCREEN_WIDTH 640
 #define SCREEN_HEIGHT 480
 
+// https://eigen.tuxfamily.org/dox/group__QuickRefPage.html
+// length / magnitude is .norm()
 using boost::format;
 using Eigen::Vector2d;
 using Eigen::Vector3d;
@@ -78,11 +82,25 @@ struct RayBounce {
 
 static const RayBounce noBounce = {.distance = -1};
 
-struct Sphere {
+class Object {
+public:
+  virtual RayBounce intersect(const Ray &ray) const = 0;
+  virtual ~Object() = default;
+};
+
+class Sphere : public Object {
+public:
   const Vector3d pos;
   const double radius;
 
-  RayBounce intersect(const Ray &ray) const {
+  // (pos - point).norm() == radius
+
+  Sphere(Vector3d initial_pos, double initial_radius)
+      : pos(initial_pos), radius(initial_radius){};
+
+  virtual RayBounce intersect(const Ray &ray) const {
+    // (pos - (ray.origin + ray.direction * distance)).norm == radius
+
     const double discriminant = pow(ray.direction.dot(ray.origin - pos), 2) -
                                 (ray.origin - pos).squaredNorm() +
                                 pow(radius, 2);
@@ -95,15 +113,38 @@ struct Sphere {
   }
 };
 
+class Plane : public Object {
+public:
+  const Vector3d pos;
+  const Vector3d normal;
+
+  // normal.dot(pos - point) == 0
+
+  Plane(Vector3d initial_pos, Vector3d initial_normal)
+      : pos(initial_pos), normal(initial_normal){};
+
+  virtual RayBounce intersect(const Ray &ray) const {
+
+    // normal.dot(pos - (ray.origin + ray.direction * distance)) == 0
+    // normal.dot(pos - ray.origin) - normal.dot(ray.direction) * distance == 0
+    // normal.dot(pos - ray.origin) / normal.dot(ray.direction) = distance
+
+    return {.distance =
+                normal.dot(pos - ray.origin) / normal.dot(ray.direction)};
+  }
+};
+
+using Scene = std::vector<std::unique_ptr<Object>>;
+
 struct CameraPixel {
   const Pixel pixel;
   const Ray ray;
   int value;
 
-  void render(std::vector<Sphere> scene) {
+  void render(Scene const &scene) {
     RayBounce closestBounce = noBounce;
     for (auto &shape : scene) {
-      RayBounce bounce = shape.intersect(ray);
+      RayBounce bounce = shape->intersect(ray);
       if (bounce.bounced() && (!closestBounce.bounced() ||
                                bounce.distance < closestBounce.distance)) {
         closestBounce = bounce;
@@ -111,6 +152,7 @@ struct CameraPixel {
     }
     if (closestBounce.bounced()) {
       double hit = exp(-closestBounce.distance * 0.5);
+      // double hit = pow(cos(closestBounce.distance * 20), 64);
       value = static_cast<int>(255.0 * hit);
     } else {
       value = 0;
@@ -162,11 +204,14 @@ int main(int /*argc*/, char * /*args*/[]) {
       .imageSize = Pixel(SCREEN_WIDTH, SCREEN_HEIGHT),
   };
 
-  const std::vector<Sphere> scene{
-      {.pos = Vector3d(0.3, 0.3, 0.3), .radius = 0.3},
-      {.pos = Vector3d(0, -0.5, 0.5), .radius = 0.5},
-      {.pos = Vector3d(-0.6, 0, 0.6), .radius = 0.6},
-  };
+  Scene scene;
+
+  scene.reserve(4);
+
+  scene.push_back(std::make_unique<Plane>(Vector3d(0, 0, 0), directionUp));
+  scene.push_back(std::make_unique<Sphere>(Vector3d(0.3, 0.3, 0.3), 0.3));
+  scene.push_back(std::make_unique<Sphere>(Vector3d(0, -0.5, 0.5), 0.5));
+  scene.push_back(std::make_unique<Sphere>(Vector3d(-0.6, 0, 0.6), 0.6));
 
   auto pixels = camera.render();
 
