@@ -107,9 +107,12 @@ public:
     if (discriminant < 0) {
       return noBounce;
     }
-    return {
-        .distance = -ray.direction.dot(ray.origin - pos) - sqrt(discriminant),
-    };
+
+    double distance = -ray.direction.dot(ray.origin - pos) - sqrt(discriminant);
+
+    Vector3d normal =
+        (pos - (ray.origin + ray.direction * distance)).normalized();
+    return {.distance = distance, .normal = normal};
   }
 };
 
@@ -130,7 +133,8 @@ public:
     // normal.dot(pos - ray.origin) / normal.dot(ray.direction) = distance
 
     return {.distance =
-                normal.dot(pos - ray.origin) / normal.dot(ray.direction)};
+                normal.dot(pos - ray.origin) / normal.dot(ray.direction),
+            .normal = normal};
   }
 };
 
@@ -139,7 +143,9 @@ using Scene = std::vector<std::unique_ptr<Object>>;
 struct CameraPixel {
   const Pixel pixel;
   const Ray ray;
-  int value;
+  int valueR;
+  int valueG;
+  int valueB;
 
   void render(Scene const &scene) {
     RayBounce closestBounce = noBounce;
@@ -153,9 +159,14 @@ struct CameraPixel {
     if (closestBounce.bounced()) {
       double hit = exp(-closestBounce.distance * 0.5);
       // double hit = pow(cos(closestBounce.distance * 20), 64);
-      value = static_cast<int>(255.0 * hit);
+      valueR =
+          static_cast<int>(255.0 * hit * (closestBounce.normal.x() / 2 + 0.5));
+      valueG =
+          static_cast<int>(255.0 * hit * (closestBounce.normal.y() / 2 + 0.5));
+      valueB =
+          static_cast<int>(255.0 * hit * (closestBounce.normal.z() / 2 + 0.5));
     } else {
-      value = 0;
+      valueR = valueG = valueB = 0;
     }
   }
 };
@@ -199,7 +210,7 @@ int main(int /*argc*/, char * /*args*/[]) {
   Display display;
 
   const Camera camera = {
-      .pos = Vector3d(3, 3, 1.5),
+      .pos = Vector3d(4, 2, 1.5),
       .target = Vector3d(0, 0, 0),
       .imageSize = Pixel(SCREEN_WIDTH, SCREEN_HEIGHT),
   };
@@ -217,8 +228,8 @@ int main(int /*argc*/, char * /*args*/[]) {
 
   for (auto &pixel : pixels) {
     pixel.render(scene);
-    display.setPixel(pixel.pixel.x(), pixel.pixel.y(), pixel.value, pixel.value,
-                     pixel.value);
+    display.setPixel(pixel.pixel.x(), pixel.pixel.y(), pixel.valueR,
+                     pixel.valueG, pixel.valueB);
   }
 
   display.update();
