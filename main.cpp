@@ -4,6 +4,7 @@
 #include <boost/format.hpp>
 #include <iostream>
 #include <memory>
+#include <random>
 #include <stdexcept>
 
 #define SCREEN_WIDTH 640
@@ -140,6 +141,18 @@ public:
 
 using Scene = std::vector<std::unique_ptr<Object>>;
 
+void randomlyRotate(Vector3d &v) {
+  static std::default_random_engine e;
+  static std::uniform_real_distribution<> randomScalar(0, 1);
+
+  Vector3d randomVector(randomScalar(e), randomScalar(e), randomScalar(e));
+
+  randomVector -= randomVector.dot(v) * v; // make it orthogonal to v
+
+  v += randomVector;
+  v.normalize();
+}
+
 struct CameraPixel {
   const Pixel pixel;
   const Ray ray;
@@ -156,8 +169,11 @@ struct CameraPixel {
         closestBounce = bounce;
       }
     }
+
+    randomlyRotate(closestBounce.normal);
+
     if (closestBounce.bounced()) {
-      double hit = exp(-closestBounce.distance * 0.5);
+      double hit = exp(-closestBounce.distance * 0.25);
       // double hit = pow(cos(closestBounce.distance * 20), 64);
       valueR =
           static_cast<int>(255.0 * hit * (closestBounce.normal.x() / 2 + 0.5));
