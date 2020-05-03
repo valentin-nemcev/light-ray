@@ -153,14 +153,43 @@ void randomlyRotate(Vector3d &v) {
   v.normalize();
 }
 
+struct PixelValue {
+  double r;
+  double g;
+  double b;
+
+  void add(PixelValue const &other) {
+    r += other.r;
+    g += other.g;
+    b += other.b;
+  }
+
+  void average(int count) {
+    r /= count;
+    g /= count;
+    b /= count;
+  }
+
+  int intR() { return static_cast<int>(255.0 * r); }
+
+  int intG() { return static_cast<int>(255.0 * g); }
+
+  int intB() { return static_cast<int>(255.0 * b); }
+};
+
 struct CameraPixel {
   const Pixel pixel;
   const Ray ray;
-  int valueR;
-  int valueG;
-  int valueB;
+  PixelValue value;
 
   void render(Scene const &scene) {
+    int total = 10;
+    for (int i = 0; i < total; i++)
+      value.add(trace(scene));
+    value.average(total);
+  }
+
+  PixelValue trace(Scene const &scene) {
     RayBounce closestBounce = noBounce;
     for (auto &shape : scene) {
       RayBounce bounce = shape->intersect(ray);
@@ -172,18 +201,19 @@ struct CameraPixel {
 
     randomlyRotate(closestBounce.normal);
 
+    PixelValue value;
+
     if (closestBounce.bounced()) {
       double hit = exp(-closestBounce.distance * 0.25);
       // double hit = pow(cos(closestBounce.distance * 20), 64);
-      valueR =
-          static_cast<int>(255.0 * hit * (closestBounce.normal.x() / 2 + 0.5));
-      valueG =
-          static_cast<int>(255.0 * hit * (closestBounce.normal.y() / 2 + 0.5));
-      valueB =
-          static_cast<int>(255.0 * hit * (closestBounce.normal.z() / 2 + 0.5));
+      value.r = hit * (closestBounce.normal.x() / 2 + 0.5);
+      value.g = hit * (closestBounce.normal.y() / 2 + 0.5);
+      value.b = hit * (closestBounce.normal.z() / 2 + 0.5);
     } else {
-      valueR = valueG = valueB = 0;
+      value.r = value.g = value.b = 0;
     }
+
+    return value;
   }
 };
 
@@ -244,8 +274,8 @@ int main(int /*argc*/, char * /*args*/[]) {
 
   for (auto &pixel : pixels) {
     pixel.render(scene);
-    display.setPixel(pixel.pixel.x(), pixel.pixel.y(), pixel.valueR,
-                     pixel.valueG, pixel.valueB);
+    display.setPixel(pixel.pixel.x(), pixel.pixel.y(), pixel.value.intR(),
+                     pixel.value.intG(), pixel.value.intB());
   }
 
   display.update();
