@@ -1,11 +1,13 @@
 #include <Eigen/Dense>
 #include <Eigen/src/Core/Matrix.h>
 #include <SDL2/SDL.h>
+#include <SDL_events.h>
 #include <boost/format.hpp>
 #include <iostream>
 #include <memory>
 #include <random>
 #include <stdexcept>
+#include <chrono>
 
 #define SCREEN_WIDTH 640
 #define SCREEN_HEIGHT 480
@@ -26,6 +28,8 @@ class Display {
   }
 
 public:
+  bool isRunning = true;
+
   Display() {
     if (SDL_Init(SDL_INIT_VIDEO) > 0) {
       sdlError("Could not initialize SDL2");
@@ -41,24 +45,37 @@ public:
     screenSurface = SDL_GetWindowSurface(window);
   }
 
+  ~Display() {
+      if (window != nullptr) SDL_DestroyWindow(window);
+      SDL_Quit();
+  }
+
   void setPixel(int x, int y, int r, int g, int b) {
     const SDL_Rect rect = {.x = x, .y = y, .w = 1, .h = 1};
     SDL_FillRect(screenSurface, &rect,
                  SDL_MapRGB(screenSurface->format, r, g, b));
   }
 
-  void update() { SDL_UpdateWindowSurface(window); }
-
-  void waitForQuit() {
+  void update() {
     SDL_Event event;
-    while (SDL_WaitEvent(&event) != 0) {
-      if (event.type == SDL_QUIT) {
-        break;
-      }
+    while (SDL_PollEvent(&event)) {
+      processEvent(event);
     }
 
-    SDL_DestroyWindow(window);
-    SDL_Quit();
+    SDL_UpdateWindowSurface(window);
+  }
+
+  void processEvent(SDL_Event &event) {
+    if (event.type == SDL_QUIT) {
+      isRunning = false;
+    }
+  }
+
+  void waitForEvent() {
+    SDL_Event event;
+    if (SDL_WaitEvent(&event)) {
+      processEvent(event);
+    }
   }
 };
 
@@ -183,7 +200,7 @@ struct CameraPixel {
   PixelValue value;
 
   void render(Scene const &scene) {
-    int total = 10;
+    int total = 2;
     for (int i = 0; i < total; i++)
       value.add(trace(scene));
     value.average(total);
@@ -252,6 +269,9 @@ public:
   }
 };
 
+using system_clock = std::chrono::system_clock;
+using sec = std::chrono::duration<int, std::milli>;
+
 int main(int /*argc*/, char * /*args*/[]) {
   Display display;
 
@@ -272,14 +292,25 @@ int main(int /*argc*/, char * /*args*/[]) {
 
   auto pixels = camera.render();
 
+  display.update();
+
+
+  const auto before = system_clock::now();
+
   for (auto &pixel : pixels) {
+    if (!display.isRunning) break;
+
     pixel.render(scene);
     display.setPixel(pixel.pixel.x(), pixel.pixel.y(), pixel.value.intR(),
                      pixel.value.intG(), pixel.value.intB());
   }
-
   display.update();
-  display.waitForQuit();
+
+  const auto duration = system_clock::now() - before;
+
+  std::cout << "It took " << duration.count() << "ms" << std::endl;
+
+  while (display.isRunning) display.waitForEvent();
 
   return 0;
 }
