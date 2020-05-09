@@ -3,11 +3,11 @@
 #include <SDL2/SDL.h>
 #include <SDL_events.h>
 #include <boost/format.hpp>
+#include <chrono>
 #include <iostream>
 #include <memory>
 #include <random>
 #include <stdexcept>
-#include <chrono>
 
 #define SCREEN_WIDTH 640
 #define SCREEN_HEIGHT 480
@@ -46,8 +46,9 @@ public:
   }
 
   ~Display() {
-      if (window != nullptr) SDL_DestroyWindow(window);
-      SDL_Quit();
+    if (window != nullptr)
+      SDL_DestroyWindow(window);
+    SDL_Quit();
   }
 
   void setPixel(int x, int y, int r, int g, int b) {
@@ -294,11 +295,11 @@ int main(int /*argc*/, char * /*args*/[]) {
 
   display.update();
 
-
   const auto before = system_clock::now();
 
   for (auto &pixel : pixels) {
-    if (!display.isRunning) break;
+    if (!display.isRunning)
+      break;
 
     pixel.render(scene);
     display.setPixel(pixel.pixel.x(), pixel.pixel.y(), pixel.value.intR(),
@@ -308,9 +309,13 @@ int main(int /*argc*/, char * /*args*/[]) {
 
   const auto duration = system_clock::now() - before;
 
-  std::cout << "It took " << duration.count() << "ms" << std::endl;
+  const auto ms =
+      std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
 
-  while (display.isRunning) display.waitForEvent();
+  std::cout << "Rendered in " << ms << "ms" << std::endl;
+
+  while (display.isRunning)
+    display.waitForEvent();
 
   return 0;
 }

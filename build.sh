@@ -30,4 +30,4 @@ fi
 
 cmake --build .
 
-time ./main
+./main
