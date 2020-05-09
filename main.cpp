@@ -19,68 +19,6 @@ using boost::format;
 using Eigen::Vector2d;
 using Eigen::Vector3d;
 
-class Display {
-  SDL_Window *window = nullptr;
-  SDL_Surface *screenSurface = nullptr;
-
-  void sdlError(std::string message) {
-    throw std::runtime_error(
-        boost::str(format("%s: %s\n") % message % SDL_GetError()));
-  }
-
-public:
-  bool isRunning = true;
-
-  Display() {
-    if (SDL_Init(SDL_INIT_VIDEO) > 0) {
-      sdlError("Could not initialize SDL2");
-    }
-
-    window = SDL_CreateWindow("Light Ray", SDL_WINDOWPOS_UNDEFINED,
-                              SDL_WINDOWPOS_UNDEFINED, SCREEN_WIDTH,
-                              SCREEN_HEIGHT, SDL_WINDOW_SHOWN);
-    if (window == nullptr) {
-      sdlError("Could not create window");
-    }
-
-    screenSurface = SDL_GetWindowSurface(window);
-  }
-
-  ~Display() {
-    if (window != nullptr)
-      SDL_DestroyWindow(window);
-    SDL_Quit();
-  }
-
-  void setPixel(int x, int y, int r, int g, int b) {
-    const SDL_Rect rect = {.x = x, .y = y, .w = 1, .h = 1};
-    SDL_FillRect(screenSurface, &rect,
-                 SDL_MapRGB(screenSurface->format, r, g, b));
-  }
-
-  void update() {
-    SDL_Event event;
-    while (SDL_PollEvent(&event)) {
-      processEvent(event);
-    }
-
-    SDL_UpdateWindowSurface(window);
-  }
-
-  void processEvent(SDL_Event &event) {
-    if (event.type == SDL_QUIT) {
-      isRunning = false;
-    }
-  }
-
-  void waitForEvent() {
-    SDL_Event event;
-    if (SDL_WaitEvent(&event)) {
-      processEvent(event);
-    }
-  }
-};
-
 using Pixel = Eigen::Matrix<unsigned int, 2, 1>;
 
 Eigen::IOFormat VFmt(Eigen::StreamPrecision, 0, ", ", ";", "", "", "(", ")");
@@ -189,11 +127,11 @@ struct PixelValue {
     b /= count;
   }
 
-  int intR() { return static_cast<int>(255.0 * r); }
+  int intR() const { return static_cast<int>(255.0 * r); }
 
-  int intG() { return static_cast<int>(255.0 * g); }
+  int intG() const { return static_cast<int>(255.0 * g); }
 
-  int intB() { return static_cast<int>(255.0 * b); }
+  int intB() const { return static_cast<int>(255.0 * b); }
 };
 
 struct CameraPixel {
@@ -277,18 +215,109 @@ class Sensor {
 
 public:
   std::vector<CameraPixel> pixels;
+  bool isRendering = false;
 
   Sensor(Camera const &_camera, Scene const &_scene)
       : camera(_camera), scene(_scene), pixels(camera.render()) {}
 
+  std::thread renderThread() {
+    isRendering = true;
+    return std::thread(&Sensor::render, this);
+  }
+
   void render() {
+    isRendering = true;
     for (auto &pixel : pixels) {
       pixel.render(scene);
     }
+    isRendering = false;
   }
 };
 
-using system_clock = std::chrono::system_clock;
+class Display {
+  SDL_Window *window = nullptr;
+  SDL_Surface *screenSurface = nullptr;
+
+  void sdlError(std::string message) {
+    throw std::runtime_error(
+        boost::str(format("%s: %s\n") % message % SDL_GetError()));
+  }
+
+  std::chrono::time_point<std::chrono::system_clock> measureStartTime;
+
+public:
+  bool isRunning = true;
+
+  Display() {
+    if (SDL_Init(SDL_INIT_VIDEO) > 0) {
+      sdlError("Could not initialize SDL2");
+    }
+
+    window = SDL_CreateWindow("Light Ray", SDL_WINDOWPOS_UNDEFINED,
+                              SDL_WINDOWPOS_UNDEFINED, SCREEN_WIDTH,
+                              SCREEN_HEIGHT, SDL_WINDOW_SHOWN);
+    if (window == nullptr) {
+      sdlError("Could not create window");
+    }
+
+    screenSurface = SDL_GetWindowSurface(window);
+  }
+
+  ~Display() {
+    if (window != nullptr)
+      SDL_DestroyWindow(window);
+    SDL_Quit();
+  }
+
+  void drawPixels(std::vector<CameraPixel> const &pixels) {
+    for (auto &pixel : pixels) {
+      if (!isRunning)
+        break;
+
+      const SDL_Rect rect = {.x = static_cast<int>(pixel.pixel.x()),
+                             .y = static_cast<int>(pixel.pixel.y()),
+                             .w = 1,
+                             .h = 1};
+      SDL_FillRect(screenSurface, &rect,
+                   SDL_MapRGB(screenSurface->format, pixel.value.intR(),
+                              pixel.value.intG(), pixel.value.intB()));
+    }
+  }
+
+  void update() {
+    SDL_Event event;
+    while (SDL_PollEvent(&event)) {
+      processEvent(event);
+    }
+
+    SDL_UpdateWindowSurface(window);
+  }
+
+  void processEvent(SDL_Event &event) {
+    if (event.type == SDL_QUIT) {
+      isRunning = false;
+    }
+  }
+
+  void waitForEvent() {
+    SDL_Event event;
+    if (SDL_WaitEvent(&event)) {
+      processEvent(event);
+    }
+  }
+
+  void startMeasure() { measureStartTime = std::chrono::system_clock::now(); }
+
+  void completeMeasure(std::string const message) {
+
+    const auto duration = std::chrono::system_clock::now() - measureStartTime;
+
+    const auto ms =
+        std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
+
+    std::cout << message << ms << "ms" << std::endl;
+  }
+};
 
 int main(int /*argc*/, char * /*args*/[]) {
   Display display;
@@ -310,29 +339,18 @@ int main(int /*argc*/, char * /*args*/[]) {
 
   display.update();
 
-  const auto before = system_clock::now();
-
+  display.startMeasure();
   Sensor sensor(camera, scene);
 
-  std::thread renderer(&Sensor::render, &sensor);
+  std::thread renderer = sensor.renderThread();
+
+  while (display.isRunning && sensor.isRendering) {
+    display.drawPixels(sensor.pixels);
+    display.update();
+  }
 
   renderer.join();
-
-  for (auto &pixel : sensor.pixels) {
-    if (!display.isRunning)
-      break;
-
-    display.setPixel(pixel.pixel.x(), pixel.pixel.y(), pixel.value.intR(),
-                     pixel.value.intG(), pixel.value.intB());
-  }
-  display.update();
-
-  const auto duration = system_clock::now() - before;
-
-  const auto ms =
-      std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
-
-  std::cout << "Rendered in " << ms << "ms" << std::endl;
+  display.completeMeasure("Rendered in ");
 
   while (display.isRunning)
     display.waitForEvent();
