@@ -8,6 +8,7 @@
 #include <memory>
 #include <random>
 #include <stdexcept>
+#include <thread>
 
 #define SCREEN_WIDTH 640
 #define SCREEN_HEIGHT 480
@@ -270,8 +271,24 @@ public:
   }
 };
 
+class Sensor {
+  const Camera &camera;
+  const Scene &scene;
+
+public:
+  std::vector<CameraPixel> pixels;
+
+  Sensor(Camera const &_camera, Scene const &_scene)
+      : camera(_camera), scene(_scene), pixels(camera.render()) {}
+
+  void render() {
+    for (auto &pixel : pixels) {
+      pixel.render(scene);
+    }
+  }
+};
+
 using system_clock = std::chrono::system_clock;
-using sec = std::chrono::duration<int, std::milli>;
 
 int main(int /*argc*/, char * /*args*/[]) {
   Display display;
@@ -291,17 +308,20 @@ int main(int /*argc*/, char * /*args*/[]) {
   scene.push_back(std::make_unique<Sphere>(Vector3d(0, -0.5, 0.5), 0.5));
   scene.push_back(std::make_unique<Sphere>(Vector3d(-0.6, 0, 0.6), 0.6));
 
-  auto pixels = camera.render();
-
   display.update();
 
   const auto before = system_clock::now();
 
-  for (auto &pixel : pixels) {
+  Sensor sensor(camera, scene);
+
+  std::thread renderer(&Sensor::render, &sensor);
+
+  renderer.join();
+
+  for (auto &pixel : sensor.pixels) {
     if (!display.isRunning)
       break;
 
-    pixel.render(scene);
     display.setPixel(pixel.pixel.x(), pixel.pixel.y(), pixel.value.intR(),
                      pixel.value.intG(), pixel.value.intB());
   }
