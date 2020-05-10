@@ -7,6 +7,7 @@
 #include <iostream>
 #include <memory>
 #include <random>
+#include <span>
 #include <stdexcept>
 #include <thread>
 
@@ -174,6 +175,8 @@ struct CameraPixel {
   }
 };
 
+using Pixels = std::vector<CameraPixel>;
+
 class Camera {
 private:
   CameraPixel indexToPixel(const unsigned int index) const {
@@ -193,13 +196,8 @@ private:
     return {.pixel = pixel, .ray = {.origin = pos, .direction = rayDirection}};
   }
 
-public:
-  const Vector3d pos;
-  const Vector3d target;
-  const Pixel imageSize;
-
-  std::vector<CameraPixel> render() const {
-    std::vector<CameraPixel> pixels;
+  Pixels allocatePixels() const {
+    Pixels pixels;
     const Pixel::Scalar pixelCount = imageSize.x() * imageSize.y();
     pixels.reserve(pixelCount);
     for (int i = 0; i < pixelCount; i++) {
@@ -207,27 +205,37 @@ public:
     }
     return pixels;
   }
+
+public:
+  const Vector3d pos;
+  const Vector3d target;
+  const Pixel imageSize;
+  Pixels pixels;
+
+  Camera(Vector3d const initial_pos, Vector3d const initial_target,
+         Pixel const initial_imageSize)
+      : pos(initial_pos), target(initial_target), imageSize(initial_imageSize),
+        pixels(allocatePixels()) {}
 };
 
 class Caster {
-  const Camera &camera;
+  std::span<CameraPixel> pixelSpan;
   const Scene &scene;
 
   std::thread thread;
 
   void render() {
-    for (auto &pixel : pixels) {
+    for (auto &pixel : pixelSpan) {
       pixel.render(scene);
     }
     isRendering = false;
   }
 
 public:
-  std::vector<CameraPixel> pixels;
   bool isRendering = false;
 
-  Caster(Camera const &_camera, Scene const &_scene)
-      : camera(_camera), scene(_scene), pixels(camera.render()) {}
+  Caster(std::span<CameraPixel> _pixelSpan, Scene const &_scene)
+      : pixelSpan(_pixelSpan), scene(_scene) {}
 
   void startRendering() {
     isRendering = true;
@@ -275,7 +283,7 @@ public:
     SDL_Quit();
   }
 
-  void drawPixels(std::vector<CameraPixel> const &pixels) {
+  void drawPixels(Pixels const &pixels) {
     for (auto &pixel : pixels) {
       if (!isRunning)
         break;
@@ -328,11 +336,8 @@ public:
 int main(int /*argc*/, char * /*args*/[]) {
   Display display;
 
-  const Camera camera = {
-      .pos = Vector3d(4, 2, 1.5),
-      .target = Vector3d(0, 0, 0),
-      .imageSize = Pixel(SCREEN_WIDTH, SCREEN_HEIGHT),
-  };
+  Camera camera(Vector3d(4, 2, 1.5), Vector3d(0, 0, 0),
+                Pixel(SCREEN_WIDTH, SCREEN_HEIGHT));
 
   Scene scene;
 
@@ -346,12 +351,12 @@ int main(int /*argc*/, char * /*args*/[]) {
   display.update();
 
   display.startMeasure();
-  Caster caster(camera, scene);
+  Caster caster(std::span<CameraPixel>(camera.pixels), scene);
 
   caster.startRendering();
 
   while (display.isRunning && caster.isRendering) {
-    display.drawPixels(caster.pixels);
+    display.drawPixels(camera.pixels);
     display.update();
   }
 
