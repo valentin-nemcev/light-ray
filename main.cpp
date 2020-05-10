@@ -209,28 +209,34 @@ public:
   }
 };
 
-class Sensor {
+class Caster {
   const Camera &camera;
   const Scene &scene;
+
+  std::thread thread;
+
+  void render() {
+    for (auto &pixel : pixels) {
+      pixel.render(scene);
+    }
+    isRendering = false;
+  }
 
 public:
   std::vector<CameraPixel> pixels;
   bool isRendering = false;
 
-  Sensor(Camera const &_camera, Scene const &_scene)
+  Caster(Camera const &_camera, Scene const &_scene)
       : camera(_camera), scene(_scene), pixels(camera.render()) {}
 
-  std::thread renderThread() {
+  void startRendering() {
     isRendering = true;
-    return std::thread(&Sensor::render, this);
+    thread = std::thread(&Caster::render, this);
   }
 
-  void render() {
-    isRendering = true;
-    for (auto &pixel : pixels) {
-      pixel.render(scene);
-    }
-    isRendering = false;
+  void waitUntilRendered() {
+    if (thread.joinable())
+      thread.join();
   }
 };
 
@@ -340,16 +346,16 @@ int main(int /*argc*/, char * /*args*/[]) {
   display.update();
 
   display.startMeasure();
-  Sensor sensor(camera, scene);
+  Caster caster(camera, scene);
 
-  std::thread renderer = sensor.renderThread();
+  caster.startRendering();
 
-  while (display.isRunning && sensor.isRendering) {
-    display.drawPixels(sensor.pixels);
+  while (display.isRunning && caster.isRendering) {
+    display.drawPixels(caster.pixels);
     display.update();
   }
 
-  renderer.join();
+  caster.waitUntilRendered();
   display.completeMeasure("Rendered in ");
 
   while (display.isRunning)
