@@ -11,8 +11,11 @@
 #include <stdexcept>
 #include <thread>
 
-#define SCREEN_WIDTH 640
-#define SCREEN_HEIGHT 480
+// default constructors reference
+// https://en.cppreference.com/w/cpp/language/rule_of_three
+
+constexpr unsigned screen_height = 480;
+constexpr unsigned screen_width = 640;
 
 // https://eigen.tuxfamily.org/dox/group__QuickRefPage.html
 // length / magnitude is .norm()
@@ -43,6 +46,12 @@ static const RayBounce no_bounce = {.distance = -1};
 class Object {
 public:
   virtual RayBounce intersect(const Ray &ray) const = 0;
+
+  Object() = default;
+  Object(const Object &) = default;
+  Object(Object &&) = default;
+  Object &operator=(const Object &) = default;
+  Object &operator=(Object &&) = default;
   virtual ~Object() = default;
 };
 
@@ -56,7 +65,7 @@ public:
   Sphere(Vector3d initial_pos, double initial_radius)
       : pos(initial_pos), radius(initial_radius){};
 
-  virtual RayBounce intersect(const Ray &ray) const {
+  RayBounce intersect(const Ray &ray) const override {
     // (pos - (ray.origin + ray.direction * distance)).norm == radius
 
     const double discriminant = pow(ray.direction.dot(ray.origin - pos), 2) -
@@ -84,7 +93,7 @@ public:
   Plane(Vector3d initial_pos, Vector3d initial_normal)
       : pos(initial_pos), normal(initial_normal){};
 
-  virtual RayBounce intersect(const Ray &ray) const {
+  RayBounce intersect(const Ray &ray) const override {
 
     // normal.dot(pos - (ray.origin + ray.direction * distance)) == 0
     // normal.dot(pos - ray.origin) - normal.dot(ray.direction) * distance == 0
@@ -158,7 +167,7 @@ struct CameraPixel {
 
     randomly_rotate(closest_bounce.normal);
 
-    PixelValue value;
+    PixelValue value{};
 
     if (closest_bounce.bounced()) {
       double hit = exp(-closest_bounce.distance * 0.25);
@@ -258,6 +267,11 @@ class Display {
 
   std::chrono::time_point<std::chrono::system_clock> measure_start_time;
 
+  Display(const Display &) = delete;
+  Display(Display &&) = delete;
+  Display &operator=(const Display &) = delete;
+  Display &operator=(Display &&) = delete;
+
 public:
   bool is_running = true;
 
@@ -267,8 +281,8 @@ public:
     }
 
     window = SDL_CreateWindow("Light Ray", SDL_WINDOWPOS_UNDEFINED,
-                              SDL_WINDOWPOS_UNDEFINED, SCREEN_WIDTH,
-                              SCREEN_HEIGHT, SDL_WINDOW_SHOWN);
+                              SDL_WINDOWPOS_UNDEFINED, screen_width,
+                              screen_height, SDL_WINDOW_SHOWN);
     if (window == nullptr) {
       sdl_error("Could not create window");
     }
@@ -338,7 +352,7 @@ int main(int /*argc*/, char * /*args*/[]) {
   Display display;
 
   Camera camera(Vector3d(4, 2, 1.5), Vector3d(0, 0, 0),
-                Vector2i(SCREEN_WIDTH, SCREEN_HEIGHT));
+                Vector2i(screen_width, screen_height));
 
   Scene scene;
 
@@ -360,9 +374,9 @@ int main(int /*argc*/, char * /*args*/[]) {
   std::vector<Caster> casters;
   casters.reserve(thread_count);
   for (unsigned i = 0; i < thread_count; i++) {
-    const int start = pixels_per_caster.quot * i;
-    const int count = pixels_per_caster.quot +
-                      (i == thread_count - 1 ? pixels_per_caster.rem : 0);
+    const unsigned start = pixels_per_caster.quot * i;
+    const unsigned count = pixels_per_caster.quot +
+                           (i == thread_count - 1 ? pixels_per_caster.rem : 0);
     casters.emplace_back(
         std::span<CameraPixel>(camera.pixels).subspan(start, count),
         std::cref(scene));
