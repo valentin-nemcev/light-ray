@@ -10,6 +10,7 @@
 #include <span>
 #include <stdexcept>
 #include <thread>
+#include <utility>
 
 // default constructors reference
 // https://en.cppreference.com/w/cpp/language/rule_of_three
@@ -45,7 +46,7 @@ static const RayBounce no_bounce = {.distance = -1};
 
 class Object {
 public:
-  virtual RayBounce intersect(const Ray &ray) const = 0;
+  [[nodiscard]] virtual RayBounce intersect(const Ray &ray) const = 0;
 
   Object() = default;
   Object(const Object &) = default;
@@ -63,9 +64,9 @@ public:
   // (pos - point).norm() == radius
 
   Sphere(Vector3d initial_pos, double initial_radius)
-      : pos(initial_pos), radius(initial_radius){};
+      : pos(std::move(initial_pos)), radius(initial_radius){};
 
-  RayBounce intersect(const Ray &ray) const override {
+  [[nodiscard]] RayBounce intersect(const Ray &ray) const override {
     // (pos - (ray.origin + ray.direction * distance)).norm == radius
 
     const double discriminant = pow(ray.direction.dot(ray.origin - pos), 2) -
@@ -91,9 +92,9 @@ public:
   // normal.dot(pos - point) == 0
 
   Plane(Vector3d initial_pos, Vector3d initial_normal)
-      : pos(initial_pos), normal(initial_normal){};
+      : pos(std::move(initial_pos)), normal(std::move(initial_normal)){};
 
-  RayBounce intersect(const Ray &ray) const override {
+  [[nodiscard]] RayBounce intersect(const Ray &ray) const override {
 
     // normal.dot(pos - (ray.origin + ray.direction * distance)) == 0
     // normal.dot(pos - ray.origin) - normal.dot(ray.direction) * distance == 0
@@ -136,11 +137,11 @@ struct PixelValue {
     b /= count;
   }
 
-  int int_r() const { return static_cast<int>(255.0 * r); }
+  [[nodiscard]] int int_r() const { return static_cast<int>(255.0 * r); }
 
-  int int_g() const { return static_cast<int>(255.0 * g); }
+  [[nodiscard]] int int_g() const { return static_cast<int>(255.0 * g); }
 
-  int int_b() const { return static_cast<int>(255.0 * b); }
+  [[nodiscard]] int int_b() const { return static_cast<int>(255.0 * b); }
 };
 
 struct CameraPixel {
@@ -187,7 +188,7 @@ using Pixels = std::vector<CameraPixel>;
 
 class Camera {
 private:
-  CameraPixel _index_to_pixel(const unsigned int index) const {
+  [[nodiscard]] CameraPixel _index_to_pixel(const unsigned int index) const {
     const Vector2i coord(index % image_size.x(), index / image_size.x());
     const double aspect_ratio =
         static_cast<double>(image_size.x()) / image_size.y();
@@ -204,7 +205,7 @@ private:
     return {.coord = coord, .ray = {.origin = pos, .direction = ray_direction}};
   }
 
-  Pixels _allocate_pixels() const {
+  [[nodiscard]] Pixels _allocate_pixels() const {
     Pixels pixels;
     const Vector2i::Scalar pixel_count = image_size.x() * image_size.y();
     pixels.reserve(pixel_count);
@@ -268,14 +269,14 @@ class Display {
 
   std::chrono::time_point<std::chrono::system_clock> _measure_start_time;
 
+  bool _is_running = true;
+
+public:
   Display(const Display &) = delete;
   Display(Display &&) = delete;
   Display &operator=(const Display &) = delete;
   Display &operator=(Display &&) = delete;
 
-  bool _is_running = true;
-
-public:
   bool is_running() { return _is_running; }
 
   Display() {
