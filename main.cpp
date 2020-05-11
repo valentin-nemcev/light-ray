@@ -2,6 +2,8 @@
 #include <Eigen/src/Core/Matrix.h>
 #include <SDL2/SDL.h>
 #include <SDL_events.h>
+#include <SDL_pixels.h>
+#include <SDL_render.h>
 #include <boost/format.hpp>
 #include <chrono>
 #include <csignal>
@@ -16,8 +18,8 @@
 // default constructors reference
 // https://en.cppreference.com/w/cpp/language/rule_of_three
 
-constexpr unsigned screen_height = 480;
-constexpr unsigned screen_width = 640;
+constexpr unsigned window_width = 640;
+constexpr unsigned window_height = 480;
 
 // https://eigen.tuxfamily.org/dox/group__QuickRefPage.html
 // length / magnitude is .norm()
@@ -163,12 +165,14 @@ struct CameraPixel {
   const Vector3d top_left;
   const Vector3d bottom_right;
   PixelValue value;
+  bool empty = true;
 
   void render(SceneRef scene) {
-    int total = 8;
-    for (int i = 0; i < total; i++)
+    constexpr int iterations = 8;
+    empty = false;
+    for (int i = 0; i < iterations; i++)
       value.add(trace(scene));
-    value.average(total);
+    value.average(iterations);
   }
 
   PixelValue trace(SceneRef scene) {
@@ -297,7 +301,7 @@ public:
 
 class Display {
   SDL_Window *_window = nullptr;
-  SDL_Surface *_screen_surface = nullptr;
+  SDL_Renderer *_renderer = nullptr;
 
   static void _sdl_error(std::string message) {
     throw std::runtime_error(
@@ -317,39 +321,75 @@ public:
   [[nodiscard]] bool is_running() const { return _is_running; }
 
   Display() {
-    if (SDL_Init(SDL_INIT_VIDEO) > 0) {
+    if (SDL_Init(SDL_INIT_VIDEO) > 0)
       _sdl_error("Could not initialize SDL2");
-    }
 
-    _window = SDL_CreateWindow("Light Ray", SDL_WINDOWPOS_UNDEFINED,
-                               SDL_WINDOWPOS_UNDEFINED, screen_width,
-                               screen_height, SDL_WINDOW_SHOWN);
-    if (_window == nullptr) {
+    _window =
+        SDL_CreateWindow("Light Ray", SDL_WINDOWPOS_UNDEFINED,
+                         SDL_WINDOWPOS_UNDEFINED, window_width, window_height,
+                         SDL_WINDOW_SHOWN | SDL_WINDOW_ALLOW_HIGHDPI);
+    if (_window == nullptr)
       _sdl_error("Could not create window");
-    }
 
-    _screen_surface = SDL_GetWindowSurface(_window);
+    _renderer = SDL_CreateRenderer(
+        _window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    if (_renderer == nullptr)
+      _sdl_error("Could not create renderer");
   }
 
   ~Display() {
+    if (_renderer != nullptr)
+      SDL_DestroyRenderer(_renderer);
     if (_window != nullptr)
       SDL_DestroyWindow(_window);
     SDL_Quit();
   }
 
+  void draw_background() {
+    int width = 0;
+    int height = 0;
+    constexpr int square_size = 16;
+    SDL_GetRendererOutputSize(_renderer, &width, &height);
+    for (int x = 0; x < width / square_size; x++)
+      for (int y = 0; y < height / square_size; y++) {
+        if (x % 2 != y % 2)
+          SDL_SetRenderDrawColor(_renderer, 0, 0, 0, SDL_ALPHA_OPAQUE);
+        else
+          SDL_SetRenderDrawColor(_renderer, 32, 32, 32, SDL_ALPHA_OPAQUE);
+
+        SDL_Rect rect{.x = x * square_size,
+                      .y = y * square_size,
+                      .w = square_size,
+                      .h = square_size};
+        SDL_RenderFillRect(_renderer, &rect);
+      }
+  }
+
   void draw_pixels(Pixels const &pixels) {
+    draw_background();
     for (const auto &pixel : pixels) {
       if (!is_running())
         break;
 
-      const SDL_Rect rect = {.x = static_cast<int>(pixel.coord.x()),
-                             .y = static_cast<int>(pixel.coord.y()),
-                             .w = 1,
-                             .h = 1};
-      SDL_FillRect(_screen_surface, &rect,
-                   SDL_MapRGB(_screen_surface->format, pixel.value.int_r(),
-                              pixel.value.int_g(), pixel.value.int_b()));
+      if (pixel.empty)
+        continue;
+      SDL_SetRenderDrawColor(_renderer, pixel.value.int_r(),
+                             pixel.value.int_g(), pixel.value.int_b(),
+                             SDL_ALPHA_OPAQUE);
+      SDL_RenderDrawPoint(_renderer, static_cast<int>(pixel.coord.x()),
+                          static_cast<int>(pixel.coord.y()));
     }
+  }
+
+  struct ScreenDimensions {
+    int width;
+    int height;
+  };
+
+  ScreenDimensions screen_dimensions() {
+    ScreenDimensions dims{};
+    SDL_GetRendererOutputSize(_renderer, &dims.width, &dims.height);
+    return dims;
   }
 
   void update() {
@@ -358,7 +398,7 @@ public:
       process_event(event);
     }
 
-    SDL_UpdateWindowSurface(_window);
+    SDL_RenderPresent(_renderer);
   }
 
   void process_event(SDL_Event &event) {
@@ -393,9 +433,15 @@ public:
 int main(int /*argc*/, char * /*args*/[]) {
   Display display;
 
-  Camera camera(Vector3d(4, 2, 1.5), Vector3d(0, 0, 0),
-                Vector2i(screen_width, screen_height));
+  auto screen_dimensions = display.screen_dimensions();
 
+  std::cout << format("Image dimensions: %dx%d\n") % screen_dimensions.width %
+                   screen_dimensions.height;
+
+  Camera camera(Vector3d(4, 2, 1.5), Vector3d(0, 0, 0),
+                Vector2i(screen_dimensions.width, screen_dimensions.height));
+
+  std::cout << format("Allocated camera\n");
   Scene scene;
 
   scene.reserve(4);
@@ -405,8 +451,11 @@ int main(int /*argc*/, char * /*args*/[]) {
   scene.push_back(std::make_unique<Sphere>(Vector3d(0, -0.5, 0.5), 0.5));
   scene.push_back(std::make_unique<Sphere>(Vector3d(-0.6, 0, 0.6), 0.6));
 
+  std::cout << format("Allocated scene\n");
+  display.draw_background();
   display.update();
 
+  std::cout << format("Window ready\n");
   display.start_measure();
 
   const auto thread_count = std::thread::hardware_concurrency();
