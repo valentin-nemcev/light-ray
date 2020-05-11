@@ -4,6 +4,7 @@
 #include <SDL_events.h>
 #include <boost/format.hpp>
 #include <chrono>
+#include <csignal>
 #include <iostream>
 #include <memory>
 #include <random>
@@ -244,6 +245,13 @@ class Caster {
 public:
   bool is_rendering() { return _is_rendering; }
 
+  Caster() = delete;
+  Caster(const Caster &) = delete;
+  Caster(Caster &&) = delete;
+  Caster &operator=(const Caster &) = delete;
+  Caster &operator=(Caster &&) = delete;
+  ~Caster() = default;
+
   Caster(std::span<CameraPixel> pixel_span, Scene const &scene)
       : _pixel_span(pixel_span), _scene(scene) {}
 
@@ -376,22 +384,26 @@ int main(int /*argc*/, char * /*args*/[]) {
   const auto pixels_per_caster =
       std::div(static_cast<int>(camera.pixels.size()), thread_count);
 
-  std::vector<Caster> casters;
+  std::vector<std::unique_ptr<Caster>> casters;
   casters.reserve(thread_count);
+  // NOLINTNEXTLINE(modernize-avoid-c-arrays, cppcoreguidelines-avoid-c-arrays)
+  // auto casters = std::make_unique<Caster[]>(thread_count);
+
   for (unsigned i = 0; i < thread_count; i++) {
     const unsigned start = pixels_per_caster.quot * i;
     const unsigned count = pixels_per_caster.quot +
                            (i == thread_count - 1 ? pixels_per_caster.rem : 0);
-    casters.emplace_back(
+    auto caster = std::make_unique<Caster>(
         std::span<CameraPixel>(camera.pixels).subspan(start, count),
         std::cref(scene));
-    casters[i].start_rendering();
+    caster->start_rendering();
+    casters.push_back(std::move(caster));
   }
 
   while (display.is_running()) {
     bool is_rendering = false;
     for (auto &caster : casters)
-      is_rendering = is_rendering || caster.is_rendering();
+      is_rendering = is_rendering || caster->is_rendering();
     display.draw_pixels(camera.pixels);
     display.update();
     if (!is_rendering)
@@ -399,7 +411,7 @@ int main(int /*argc*/, char * /*args*/[]) {
   }
 
   for (auto &caster : casters)
-    caster.wait_until_rendered();
+    caster->wait_until_rendered();
   display.complete_measure("Rendered in ");
 
   while (display.is_running())

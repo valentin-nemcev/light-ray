@@ -9,6 +9,9 @@ case $i in
     --setup)
     SETUP=YES
     ;;
+    --debug)
+    DEBUG=YES
+    ;;
     *)
             # unknown option
     ;;
@@ -16,9 +19,11 @@ esac
 done
 
 
-export CC="$(brew --prefix llvm)/bin/clang"
-export CXX="$(brew --prefix llvm)/bin/clang++"
-export LDFLAGS="-L/usr/local/opt/llvm/lib -Wl,-rpath,/usr/local/opt/llvm/lib"
+PREFIX="$(brew --prefix llvm)"
+
+export CC="$PREFIX/bin/clang"
+export CXX="$PREFIX/bin/clang++"
+export LDFLAGS="-L$PREFIX/lib -Wl,-rpath,$PREFIX/lib"
 
 cd build
 
@@ -30,5 +35,9 @@ fi
 
 cmake --build .
 
+if [ ! -z $DEBUG ]
+then
+$PREFIX/bin/lldb -o run ./main
+else
 ./main
-# $(brew --prefix llvm)/bin/lldb -o run ./main
+fi
