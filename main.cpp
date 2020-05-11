@@ -108,6 +108,7 @@ public:
 };
 
 using Scene = std::vector<std::unique_ptr<Object>>;
+using SceneRef = const std::vector<std::unique_ptr<Object>> &;
 
 void randomly_rotate(Vector3d &v) {
   static std::default_random_engine e;
@@ -150,14 +151,14 @@ struct CameraPixel {
   const Ray ray;
   PixelValue value;
 
-  void render(Scene const &scene) {
+  void render(SceneRef scene) {
     int total = 2;
     for (int i = 0; i < total; i++)
       value.add(trace(scene));
     value.average(total);
   }
 
-  PixelValue trace(Scene const &scene) {
+  PixelValue trace(SceneRef scene) {
     RayBounce closest_bounce = no_bounce;
     for (auto &shape : scene) {
       RayBounce bounce = shape->intersect(ray);
@@ -229,8 +230,8 @@ public:
 };
 
 class Caster {
-  std::span<CameraPixel> _pixel_span;
-  const Scene &_scene;
+  const std::span<CameraPixel> _pixel_span;
+  SceneRef _scene;
 
   std::thread _thread;
   bool _is_rendering = false;
@@ -252,7 +253,7 @@ public:
   Caster &operator=(Caster &&) = delete;
   ~Caster() = default;
 
-  Caster(std::span<CameraPixel> pixel_span, Scene const &scene)
+  Caster(const std::span<CameraPixel> pixel_span, SceneRef scene)
       : _pixel_span(pixel_span), _scene(scene) {}
 
   void start_rendering() {
@@ -386,8 +387,6 @@ int main(int /*argc*/, char * /*args*/[]) {
 
   std::vector<std::unique_ptr<Caster>> casters;
   casters.reserve(thread_count);
-  // NOLINTNEXTLINE(modernize-avoid-c-arrays, cppcoreguidelines-avoid-c-arrays)
-  // auto casters = std::make_unique<Caster[]>(thread_count);
 
   for (unsigned i = 0; i < thread_count; i++) {
     const unsigned start = pixels_per_caster.quot * i;
