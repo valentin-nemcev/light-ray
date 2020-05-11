@@ -26,7 +26,7 @@ add_executable(main main.cpp)
 
 target_link_libraries(main SDL2::SDL2main SDL2::SDL2 Boost::boost Eigen3::Eigen range-v3::range-v3)
 
-set(CMAKE_CXX_FLAGS "-std=c++20 -Wall -fdiagnostics-show-template-tree")
+set(CMAKE_CXX_FLAGS "-std=c++20 -Wall -Wextra -Wpedantic -fdiagnostics-show-template-tree")
 set(CMAKE_BUILD_TYPE Debug)
 
 

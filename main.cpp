@@ -359,7 +359,7 @@ int main(int /*argc*/, char * /*args*/[]) {
 
   std::vector<Caster> casters;
   casters.reserve(thread_count);
-  for (int i = 0; i < thread_count; i++) {
+  for (unsigned i = 0; i < thread_count; i++) {
     const int start = pixels_per_caster.quot * i;
     const int count = pixels_per_caster.quot +
                       (i == thread_count - 1 ? pixels_per_caster.rem : 0);
