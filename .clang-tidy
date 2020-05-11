@@ -10,6 +10,13 @@ CheckOptions:
   - { key: readability-identifier-naming.FunctionCase,  value: lower_case }
   - { key: readability-identifier-naming.MemberCase,    value: lower_case }
   - { key: readability-identifier-naming.ParameterCase, value: lower_case }
+
+  - { key: readability-identifier-naming.PrivateMemberPrefix,    value: _ }
+  - { key: readability-identifier-naming.ProtectedMemberPrefix,  value: _ }
+
+  - { key: readability-identifier-naming.PrivateMethodPrefix,    value: _ }
+  - { key: readability-identifier-naming.ProtectedMethodPrefix,  value: _ }
+
   - key:             cert-dcl16-c.NewSuffixes
     value:           'L;LL;LU;LLU'
   - key:             cert-oop54-cpp.WarnOnlyIfThisHasSuspiciousField

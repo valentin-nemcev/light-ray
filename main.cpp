@@ -187,7 +187,7 @@ using Pixels = std::vector<CameraPixel>;
 
 class Camera {
 private:
-  CameraPixel index_to_pixel(const unsigned int index) const {
+  CameraPixel _index_to_pixel(const unsigned int index) const {
     const Vector2i coord(index % image_size.x(), index / image_size.x());
     const double aspect_ratio =
         static_cast<double>(image_size.x()) / image_size.y();
@@ -204,12 +204,12 @@ private:
     return {.coord = coord, .ray = {.origin = pos, .direction = ray_direction}};
   }
 
-  Pixels allocate_pixels() const {
+  Pixels _allocate_pixels() const {
     Pixels pixels;
     const Vector2i::Scalar pixel_count = image_size.x() * image_size.y();
     pixels.reserve(pixel_count);
     for (int i = 0; i < pixel_count; i++) {
-      pixels.push_back(index_to_pixel(i));
+      pixels.push_back(_index_to_pixel(i));
     }
     return pixels;
   }
@@ -223,90 +223,93 @@ public:
   Camera(Vector3d const initial_pos, Vector3d const initial_target,
          Vector2i const initial_image_size)
       : pos(initial_pos), target(initial_target),
-        image_size(initial_image_size), pixels(allocate_pixels()) {}
+        image_size(initial_image_size), pixels(_allocate_pixels()) {}
 };
 
 class Caster {
-  std::span<CameraPixel> pixel_span;
-  const Scene &scene;
+  std::span<CameraPixel> _pixel_span;
+  const Scene &_scene;
 
-  std::thread thread;
+  std::thread _thread;
+  bool _is_rendering = false;
 
-  void render() {
-    for (auto &pixel : pixel_span) {
-      pixel.render(scene);
+  void _render() {
+    for (auto &pixel : _pixel_span) {
+      pixel.render(_scene);
     }
-    is_rendering = false;
+    _is_rendering = false;
   }
 
 public:
-  bool is_rendering = false;
+  bool is_rendering() { return _is_rendering; }
 
   Caster(std::span<CameraPixel> pixel_span, Scene const &scene)
-      : pixel_span(pixel_span), scene(scene) {}
+      : _pixel_span(pixel_span), _scene(scene) {}
 
   void start_rendering() {
-    is_rendering = true;
-    thread = std::thread(&Caster::render, this);
+    _is_rendering = true;
+    _thread = std::thread(&Caster::_render, this);
   }
 
   void wait_until_rendered() {
-    if (thread.joinable())
-      thread.join();
+    if (_thread.joinable())
+      _thread.join();
   }
 };
 
 class Display {
-  SDL_Window *window = nullptr;
-  SDL_Surface *screen_surface = nullptr;
+  SDL_Window *_window = nullptr;
+  SDL_Surface *_screen_surface = nullptr;
 
-  void sdl_error(std::string message) {
+  void _sdl_error(std::string message) {
     throw std::runtime_error(
         boost::str(format("%s: %s\n") % message % SDL_GetError()));
   }
 
-  std::chrono::time_point<std::chrono::system_clock> measure_start_time;
+  std::chrono::time_point<std::chrono::system_clock> _measure_start_time;
 
   Display(const Display &) = delete;
   Display(Display &&) = delete;
   Display &operator=(const Display &) = delete;
   Display &operator=(Display &&) = delete;
 
+  bool _is_running = true;
+
 public:
-  bool is_running = true;
+  bool is_running() { return _is_running; }
 
   Display() {
     if (SDL_Init(SDL_INIT_VIDEO) > 0) {
-      sdl_error("Could not initialize SDL2");
+      _sdl_error("Could not initialize SDL2");
     }
 
-    window = SDL_CreateWindow("Light Ray", SDL_WINDOWPOS_UNDEFINED,
-                              SDL_WINDOWPOS_UNDEFINED, screen_width,
-                              screen_height, SDL_WINDOW_SHOWN);
-    if (window == nullptr) {
-      sdl_error("Could not create window");
+    _window = SDL_CreateWindow("Light Ray", SDL_WINDOWPOS_UNDEFINED,
+                               SDL_WINDOWPOS_UNDEFINED, screen_width,
+                               screen_height, SDL_WINDOW_SHOWN);
+    if (_window == nullptr) {
+      _sdl_error("Could not create window");
     }
 
-    screen_surface = SDL_GetWindowSurface(window);
+    _screen_surface = SDL_GetWindowSurface(_window);
   }
 
   ~Display() {
-    if (window != nullptr)
-      SDL_DestroyWindow(window);
+    if (_window != nullptr)
+      SDL_DestroyWindow(_window);
     SDL_Quit();
   }
 
   void draw_pixels(Pixels const &pixels) {
     for (auto &pixel : pixels) {
-      if (!is_running)
+      if (!is_running())
         break;
 
       const SDL_Rect rect = {.x = static_cast<int>(pixel.coord.x()),
                              .y = static_cast<int>(pixel.coord.y()),
                              .w = 1,
                              .h = 1};
-      SDL_FillRect(screen_surface, &rect,
-                   SDL_MapRGB(screen_surface->format, pixel.value.int_r(),
+      SDL_FillRect(_screen_surface, &rect,
+                   SDL_MapRGB(_screen_surface->format, pixel.value.int_r(),
                               pixel.value.int_g(), pixel.value.int_b()));
     }
   }
@@ -317,12 +320,12 @@ public:
       process_event(event);
     }
 
-    SDL_UpdateWindowSurface(window);
+    SDL_UpdateWindowSurface(_window);
   }
 
   void process_event(SDL_Event &event) {
     if (event.type == SDL_QUIT) {
-      is_running = false;
+      _is_running = false;
     }
   }
 
@@ -334,12 +337,13 @@ public:
   }
 
   void start_measure() {
-    measure_start_time = std::chrono::system_clock::now();
+    _measure_start_time = std::chrono::system_clock::now();
   }
 
   void complete_measure(std::string const message) {
 
-    const auto duration = std::chrono::system_clock::now() - measure_start_time;
+    const auto duration =
+        std::chrono::system_clock::now() - _measure_start_time;
 
     const auto ms =
         std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
@@ -383,10 +387,10 @@ int main(int /*argc*/, char * /*args*/[]) {
     casters[i].start_rendering();
   }
 
-  while (display.is_running) {
+  while (display.is_running()) {
     bool is_rendering = false;
     for (auto &caster : casters)
-      is_rendering = is_rendering || caster.is_rendering;
+      is_rendering = is_rendering || caster.is_rendering();
     display.draw_pixels(camera.pixels);
     display.update();
     if (!is_rendering)
@@ -397,7 +401,7 @@ int main(int /*argc*/, char * /*args*/[]) {
     caster.wait_until_rendered();
   display.complete_measure("Rendered in ");
 
-  while (display.is_running)
+  while (display.is_running())
     display.wait_for_event();
 
   return 0;
