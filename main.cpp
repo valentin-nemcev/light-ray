@@ -18,9 +18,8 @@
 // length / magnitude is .norm()
 using boost::format;
 using Eigen::Vector2d;
+using Eigen::Vector2i;
 using Eigen::Vector3d;
-
-using Pixel = Eigen::Matrix<unsigned int, 2, 1>;
 
 Eigen::IOFormat v_fmt(Eigen::StreamPrecision, 0, ", ", ";", "", "", "(", ")");
 
@@ -136,7 +135,7 @@ struct PixelValue {
 };
 
 struct CameraPixel {
-  const Pixel pixel;
+  const Vector2i coord;
   const Ray ray;
   PixelValue value;
 
@@ -180,11 +179,11 @@ using Pixels = std::vector<CameraPixel>;
 class Camera {
 private:
   CameraPixel index_to_pixel(const unsigned int index) const {
-    const Pixel pixel(index % image_size.x(), index / image_size.x());
+    const Vector2i coord(index % image_size.x(), index / image_size.x());
     const double aspect_ratio =
         static_cast<double>(image_size.x()) / image_size.y();
-    const Vector2d pixel_pos((pixel.x() + 0.5) / image_size.x() - 0.5,
-                             (pixel.y() + 0.5) / image_size.y() / aspect_ratio -
+    const Vector2d pixel_pos((coord.x() + 0.5) / image_size.x() - 0.5,
+                             (coord.y() + 0.5) / image_size.y() / aspect_ratio -
                                  0.5);
 
     Vector3d direction = (target - pos).normalized();
@@ -193,12 +192,12 @@ private:
     Vector3d ray_direction =
         (direction + camera_right * pixel_pos.x() - camera_up * pixel_pos.y())
             .normalized();
-    return {.pixel = pixel, .ray = {.origin = pos, .direction = ray_direction}};
+    return {.coord = coord, .ray = {.origin = pos, .direction = ray_direction}};
   }
 
   Pixels allocate_pixels() const {
     Pixels pixels;
-    const Pixel::Scalar pixel_count = image_size.x() * image_size.y();
+    const Vector2i::Scalar pixel_count = image_size.x() * image_size.y();
     pixels.reserve(pixel_count);
     for (int i = 0; i < pixel_count; i++) {
       pixels.push_back(index_to_pixel(i));
@@ -209,11 +208,11 @@ private:
 public:
   const Vector3d pos;
   const Vector3d target;
-  const Pixel image_size;
+  const Vector2i image_size;
   Pixels pixels;
 
   Camera(Vector3d const initial_pos, Vector3d const initial_target,
-         Pixel const initial_image_size)
+         Vector2i const initial_image_size)
       : pos(initial_pos), target(initial_target),
         image_size(initial_image_size), pixels(allocate_pixels()) {}
 };
@@ -288,8 +287,8 @@ public:
       if (!is_running)
         break;
 
-      const SDL_Rect rect = {.x = static_cast<int>(pixel.pixel.x()),
-                             .y = static_cast<int>(pixel.pixel.y()),
+      const SDL_Rect rect = {.x = static_cast<int>(pixel.coord.x()),
+                             .y = static_cast<int>(pixel.coord.y()),
                              .w = 1,
                              .h = 1};
       SDL_FillRect(screen_surface, &rect,
@@ -339,7 +338,7 @@ int main(int /*argc*/, char * /*args*/[]) {
   Display display;
 
   Camera camera(Vector3d(4, 2, 1.5), Vector3d(0, 0, 0),
-                Pixel(SCREEN_WIDTH, SCREEN_HEIGHT));
+                Vector2i(SCREEN_WIDTH, SCREEN_HEIGHT));
 
   Scene scene;
 
