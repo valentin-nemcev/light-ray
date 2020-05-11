@@ -40,7 +40,7 @@ struct RayBounce {
   Vector3d point;
   Vector3d normal;
 
-  bool bounced() { return distance >= 0; }
+  [[nodiscard]] bool bounced() const { return distance >= 0; }
 };
 
 static const RayBounce no_bounce = {.distance = -1};
@@ -110,16 +110,27 @@ public:
 using Scene = std::vector<std::unique_ptr<Object>>;
 using SceneRef = const std::vector<std::unique_ptr<Object>> &;
 
+std::random_device random_device;
+static thread_local std::default_random_engine random_engine(random_device());
+
 void randomly_rotate(Vector3d &v) {
-  static std::default_random_engine e;
   static std::uniform_real_distribution<> random_scalar(0, 1);
 
-  Vector3d random_vector(random_scalar(e), random_scalar(e), random_scalar(e));
+  Vector3d random_vector(random_scalar(random_engine),
+                         random_scalar(random_engine),
+                         random_scalar(random_engine));
 
   random_vector -= random_vector.dot(v) * v; // make it orthogonal to v
 
   v += random_vector;
   v.normalize();
+}
+
+Vector3d random_interpolated_vector(const Vector3d from, const Vector3d to) {
+  static std::uniform_real_distribution<> t(0, 1);
+  return Vector3d(std::lerp(from.x(), to.x(), t(random_engine)),
+                  std::lerp(from.y(), to.y(), t(random_engine)),
+                  std::lerp(from.z(), to.z(), t(random_engine)));
 }
 
 struct PixelValue {
@@ -148,19 +159,25 @@ struct PixelValue {
 
 struct CameraPixel {
   const Vector2i coord;
-  const Ray ray;
+  const Vector3d origin;
+  const Vector3d top_left;
+  const Vector3d bottom_right;
   PixelValue value;
 
   void render(SceneRef scene) {
-    int total = 2;
+    int total = 8;
     for (int i = 0; i < total; i++)
       value.add(trace(scene));
     value.average(total);
   }
 
   PixelValue trace(SceneRef scene) {
+    const Ray ray = {
+        .origin = origin,
+        .direction =
+            random_interpolated_vector(top_left, bottom_right).normalized()};
     RayBounce closest_bounce = no_bounce;
-    for (auto &shape : scene) {
+    for (const auto &shape : scene) {
       RayBounce bounce = shape->intersect(ray);
       if (bounce.bounced() && (!closest_bounce.bounced() ||
                                bounce.distance < closest_bounce.distance)) {
@@ -194,17 +211,28 @@ private:
     const Vector2i coord(index % image_size.x(), index / image_size.x());
     const double aspect_ratio =
         static_cast<double>(image_size.x()) / image_size.y();
-    const Vector2d pixel_pos((coord.x() + 0.5) / image_size.x() - 0.5,
-                             (coord.y() + 0.5) / image_size.y() / aspect_ratio -
-                                 0.5);
+    const Vector2d pixel_pos_top_left(
+        (coord.x() + 0.0) / image_size.x() - 0.5,
+        (coord.y() + 0.0) / image_size.y() / aspect_ratio - 0.5);
+    const Vector2d pixel_pos_bottom_right(
+        (coord.x() + 1.0) / image_size.x() - 0.5,
+        (coord.y() + 1.0) / image_size.y() / aspect_ratio - 0.5);
 
     Vector3d direction = (target - pos).normalized();
     const Vector3d camera_right = direction.cross(direction_up);
     const Vector3d camera_up = camera_right.cross(direction);
-    Vector3d ray_direction =
-        (direction + camera_right * pixel_pos.x() - camera_up * pixel_pos.y())
+    Vector3d ray_direction_top_left =
+        (direction + camera_right * pixel_pos_top_left.x() -
+         camera_up * pixel_pos_bottom_right.y())
             .normalized();
-    return {.coord = coord, .ray = {.origin = pos, .direction = ray_direction}};
+    Vector3d ray_direction_bottom_right =
+        (direction + camera_right * pixel_pos_bottom_right.x() -
+         camera_up * pixel_pos_bottom_right.y())
+            .normalized();
+    return {.coord = coord,
+            .origin = pos,
+            .top_left = ray_direction_top_left,
+            .bottom_right = ray_direction_bottom_right};
   }
 
   [[nodiscard]] Pixels _allocate_pixels() const {
@@ -244,7 +272,7 @@ class Caster {
   }
 
 public:
-  bool is_rendering() { return _is_rendering; }
+  [[nodiscard]] bool is_rendering() const { return _is_rendering; }
 
   Caster() = delete;
   Caster(const Caster &) = delete;
@@ -271,7 +299,7 @@ class Display {
   SDL_Window *_window = nullptr;
   SDL_Surface *_screen_surface = nullptr;
 
-  void _sdl_error(std::string message) {
+  static void _sdl_error(std::string message) {
     throw std::runtime_error(
         boost::str(format("%s: %s\n") % message % SDL_GetError()));
   }
@@ -286,7 +314,7 @@ public:
   Display &operator=(const Display &) = delete;
   Display &operator=(Display &&) = delete;
 
-  bool is_running() { return _is_running; }
+  [[nodiscard]] bool is_running() const { return _is_running; }
 
   Display() {
     if (SDL_Init(SDL_INIT_VIDEO) > 0) {
@@ -310,7 +338,7 @@ public:
   }
 
   void draw_pixels(Pixels const &pixels) {
-    for (auto &pixel : pixels) {
+    for (const auto &pixel : pixels) {
       if (!is_running())
         break;
 
@@ -326,7 +354,7 @@ public:
 
   void update() {
     SDL_Event event;
-    while (SDL_PollEvent(&event)) {
+    while (SDL_PollEvent(&event) != 0) {
       process_event(event);
     }
 
@@ -341,7 +369,7 @@ public:
 
   void wait_for_event() {
     SDL_Event event;
-    if (SDL_WaitEvent(&event)) {
+    if (SDL_WaitEvent(&event) != 0) {
       process_event(event);
     }
   }
