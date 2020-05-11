@@ -24,10 +24,11 @@ cd build
 
 if [ ! -z $SETUP ]
 then
-  cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=1 ..
+  cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=1 -DCMAKE_BUILD_TYPE=Debug ..
   mv compile_commands.json ..
 fi
 
 cmake --build .
 
 ./main
+# $(brew --prefix llvm)/bin/lldb -o run ./main

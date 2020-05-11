@@ -351,16 +351,35 @@ int main(int /*argc*/, char * /*args*/[]) {
   display.update();
 
   display.startMeasure();
-  Caster caster(std::span<CameraPixel>(camera.pixels), scene);
 
-  caster.startRendering();
+  const auto threadCount = std::thread::hardware_concurrency();
+  const auto pixelsPerCaster =
+      std::div(static_cast<int>(camera.pixels.size()), threadCount);
 
-  while (display.isRunning && caster.isRendering) {
-    display.drawPixels(camera.pixels);
-    display.update();
+  std::vector<Caster> casters;
+  casters.reserve(threadCount);
+  for (int i = 0; i < threadCount; i++) {
+    const int start = pixelsPerCaster.quot * i;
+    const int count =
+        pixelsPerCaster.quot + (i == threadCount - 1 ? pixelsPerCaster.rem : 0);
+    casters.emplace_back(
+        std::span<CameraPixel>(camera.pixels).subspan(start, count),
+        std::cref(scene));
+    casters[i].startRendering();
   }
 
-  caster.waitUntilRendered();
+  while (display.isRunning) {
+    bool isRendering = false;
+    for (auto &caster : casters)
+      isRendering = isRendering || caster.isRendering;
+    display.drawPixels(camera.pixels);
+    display.update();
+    if (!isRendering)
+      break;
+  }
+
+  for (auto &caster : casters)
+    caster.waitUntilRendered();
   display.completeMeasure("Rendered in ");
 
   while (display.isRunning)
