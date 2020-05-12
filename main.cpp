@@ -6,6 +6,7 @@
 #include <SDL_render.h>
 #include <boost/format.hpp>
 #include <chrono>
+#include <cmath>
 #include <csignal>
 #include <iostream>
 #include <memory>
@@ -30,7 +31,10 @@ using Eigen::Vector3d;
 
 Eigen::IOFormat v_fmt(Eigen::StreamPrecision, 0, ", ", ";", "", "", "(", ")");
 
-Vector3d direction_up(0, 0, 1);
+static const Vector3d direction_up(0, 0, 1);
+
+constexpr auto pi = M_PI;
+constexpr double deg_to_rad(const double deg) { return pi * (deg / 180.0); }
 
 struct Ray {
   const Vector3d origin;
@@ -106,6 +110,22 @@ public:
     return {.distance =
                 normal.dot(pos - ray.origin) / normal.dot(ray.direction),
             .normal = normal};
+  }
+};
+
+class Sky : public Object {
+public:
+  const Vector3d sun_direction;
+  const double sun_angular_size;
+
+  Sky(const Vector3d sun_direction, const double sun_angular_size)
+      : sun_direction(sun_direction.normalized()),
+        sun_angular_size(sun_angular_size){};
+
+  [[nodiscard]] RayBounce intersect(const Ray &ray) const override {
+
+    return {.distance = std::numeric_limits<double>::infinity(),
+            .normal = -ray.direction};
   }
 };
 
@@ -450,6 +470,7 @@ int main(int /*argc*/, char * /*args*/[]) {
   scene.push_back(std::make_unique<Sphere>(Vector3d(0.3, 0.3, 0.3), 0.3));
   scene.push_back(std::make_unique<Sphere>(Vector3d(0, -0.5, 0.5), 0.5));
   scene.push_back(std::make_unique<Sphere>(Vector3d(-0.6, 0, 0.6), 0.6));
+  scene.push_back(std::make_unique<Sky>(Vector3d(1, -1, 1), deg_to_rad(0.53)));
 
   std::cout << format("Allocated scene\n");
   display.draw_background();
