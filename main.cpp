@@ -41,19 +41,19 @@ struct Ray {
   const Vector3d direction;
 };
 
-struct RayBounce {
+struct RayIntersection {
   double distance;
   Vector3d point;
   Vector3d normal;
 
-  [[nodiscard]] bool bounced() const { return distance >= 0; }
+  [[nodiscard]] bool intersected() const { return distance >= 0; }
 };
 
-static const RayBounce no_bounce = {.distance = -1};
+static const RayIntersection no_intersection = {.distance = -1};
 
 class Object {
 public:
-  [[nodiscard]] virtual RayBounce intersect(const Ray &ray) const = 0;
+  [[nodiscard]] virtual RayIntersection intersect(const Ray &ray) const = 0;
 
   Object() = default;
   Object(const Object &) = default;
@@ -73,14 +73,14 @@ public:
   Sphere(Vector3d initial_pos, double initial_radius)
       : pos(std::move(initial_pos)), radius(initial_radius){};
 
-  [[nodiscard]] RayBounce intersect(const Ray &ray) const override {
+  [[nodiscard]] RayIntersection intersect(const Ray &ray) const override {
     // (pos - (ray.origin + ray.direction * distance)).norm == radius
 
     const double discriminant = pow(ray.direction.dot(ray.origin - pos), 2) -
                                 (ray.origin - pos).squaredNorm() +
                                 pow(radius, 2);
     if (discriminant < 0) {
-      return no_bounce;
+      return no_intersection;
     }
 
     double distance = -ray.direction.dot(ray.origin - pos) - sqrt(discriminant);
@@ -101,7 +101,7 @@ public:
   Plane(Vector3d initial_pos, Vector3d initial_normal)
       : pos(std::move(initial_pos)), normal(std::move(initial_normal)){};
 
-  [[nodiscard]] RayBounce intersect(const Ray &ray) const override {
+  [[nodiscard]] RayIntersection intersect(const Ray &ray) const override {
 
     // normal.dot(pos - (ray.origin + ray.direction * distance)) == 0
     // normal.dot(pos - ray.origin) - normal.dot(ray.direction) * distance == 0
@@ -122,7 +122,7 @@ public:
       : sun_direction(sun_direction.normalized()),
         sun_angular_size(sun_angular_size){};
 
-  [[nodiscard]] RayBounce intersect(const Ray &ray) const override {
+  [[nodiscard]] RayIntersection intersect(const Ray &ray) const override {
 
     return {.distance = std::numeric_limits<double>::infinity(),
             .normal = -ray.direction};
@@ -195,30 +195,35 @@ struct CameraPixel {
     value.average(iterations);
   }
 
-  PixelValue trace(SceneRef scene) {
-    const Ray ray = {
+  [[nodiscard]] Ray emit() const {
+    return {
         .origin = origin,
         .direction =
             random_interpolated_vector(top_left, bottom_right).normalized()};
-    RayBounce closest_bounce = no_bounce;
+  };
+
+  [[nodiscard]] PixelValue trace(SceneRef scene) const {
+    const Ray ray = emit();
+
+    RayIntersection closest_intersection = no_intersection;
     for (const auto &shape : scene) {
-      RayBounce bounce = shape->intersect(ray);
-      if (bounce.bounced() && (!closest_bounce.bounced() ||
-                               bounce.distance < closest_bounce.distance)) {
-        closest_bounce = bounce;
+      RayIntersection intersection = shape->intersect(ray);
+      if (intersection.intersected() &&
+          (!closest_intersection.intersected() ||
+           intersection.distance < closest_intersection.distance)) {
+        closest_intersection = intersection;
       }
     }
 
-    randomly_rotate(closest_bounce.normal);
+    randomly_rotate(closest_intersection.normal);
 
     PixelValue value{};
 
-    if (closest_bounce.bounced()) {
-      double hit = exp(-closest_bounce.distance * 0.25);
-      // double hit = pow(cos(closestBounce.distance * 20), 64);
-      value.r = hit * (closest_bounce.normal.x() / 2 + 0.5);
-      value.g = hit * (closest_bounce.normal.y() / 2 + 0.5);
-      value.b = hit * (closest_bounce.normal.z() / 2 + 0.5);
+    if (closest_intersection.intersected()) {
+      double hit = exp(-closest_intersection.distance * 0.25);
+      value.r = hit * (closest_intersection.normal.x() / 2 + 0.5);
+      value.g = hit * (closest_intersection.normal.y() / 2 + 0.5);
+      value.b = hit * (closest_intersection.normal.z() / 2 + 0.5);
     } else {
       value.r = value.g = value.b = 0;
     }
