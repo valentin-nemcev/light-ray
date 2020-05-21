@@ -47,15 +47,16 @@ Vector3d reflect(Vector3d const &direction, Vector3d const &normal) {
 };
 
 std::random_device random_device;
-static thread_local std::default_random_engine random_engine(random_device());
+static thread_local std::mt19937_64 random_engine(random_device());
 
 void randomly_rotate(Vector3d &v) {
-  static std::uniform_real_distribution<> r_coeff(0, 1);
-  static std::uniform_real_distribution<> r_length(
+  static thread_local std::uniform_real_distribution<> r_coord(-1, 1);
+  static thread_local std::uniform_real_distribution<> r_coeff(0, 1);
+  static thread_local std::uniform_real_distribution<> r_length(
       0, std::numeric_limits<double>::infinity());
 
-  Vector3d random_vector(r_coeff(random_engine), r_coeff(random_engine),
-                         r_coeff(random_engine));
+  Vector3d random_vector(r_coord(random_engine), r_coord(random_engine),
+                         r_coord(random_engine));
 
   random_vector -= random_vector.dot(v) * v; // make it orthogonal to v
   random_vector.normalize();
@@ -76,14 +77,14 @@ Vector3d randomly_rotated(Vector3d direction) {
 }
 
 Vector3d random_interpolated_vector(const Vector3d &from, const Vector3d &to) {
-  static std::uniform_real_distribution<> t(0, 1);
+  static thread_local std::uniform_real_distribution<> t(0, 1);
   return Vector3d(std::lerp(from.x(), to.x(), t(random_engine)),
                   std::lerp(from.y(), to.y(), t(random_engine)),
                   std::lerp(from.z(), to.z(), t(random_engine)));
 }
 
 double random_coefficient() {
-  static std::uniform_real_distribution<> t(0, 1);
+  static thread_local std::uniform_real_distribution<> t(0, 1);
   return t(random_engine);
 }
 
@@ -578,7 +579,7 @@ int main(int /*argc*/, char * /*args*/[]) {
   // Camera camera(Vector3d(4, 2, 1.5), Vector3d(0, 0, 0),
   //               Vector2i(screen_dimensions.width, screen_dimensions.height));
 
-  Camera camera(Vector3d(0, 4, -4), Vector3d(0, 0, 0),
+  Camera camera(Vector3d(0, 0, 4), Vector3d(0, 0, 0),
                 Vector2i(screen_dimensions.width, screen_dimensions.height));
 
   std::cout << boost::format("Allocated camera\n");
@@ -594,7 +595,7 @@ int main(int /*argc*/, char * /*args*/[]) {
   */
   scene.push_back(std::make_unique<Sphere>(Vector3d(0, 0, 0), 0.75, 0.75));
   scene.push_back(
-      std::make_unique<Sky>(Vector3d(0, 3, 0), deg_to_rad(30 /*0.53*/)));
+      std::make_unique<Sky>(Vector3d(1, 1, 0), deg_to_rad(30 /*0.53*/)));
 
   std::cout << boost::format("Allocated scene\n");
   display.draw_background();
