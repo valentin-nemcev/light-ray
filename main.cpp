@@ -26,7 +26,6 @@ constexpr unsigned window_height = 480;
 
 // https://eigen.tuxfamily.org/dox/group__QuickRefPage.html
 // length / magnitude is .norm()
-using boost::format;
 using Eigen::Vector2d;
 using Eigen::Vector2i;
 using Eigen::Vector3d;
@@ -46,16 +45,24 @@ std::random_device random_device;
 static thread_local std::default_random_engine random_engine(random_device());
 
 void randomly_rotate(Vector3d &v) {
-  static std::uniform_real_distribution<> random_scalar(0, 1);
+  static std::uniform_real_distribution<> r_coeff(0, 1);
+  static std::uniform_real_distribution<> r_length(
+      0, std::numeric_limits<double>::infinity());
 
-  Vector3d random_vector(random_scalar(random_engine),
-                         random_scalar(random_engine),
-                         random_scalar(random_engine));
+  Vector3d random_vector(r_coeff(random_engine), r_coeff(random_engine),
+                         r_coeff(random_engine));
 
   random_vector -= random_vector.dot(v) * v; // make it orthogonal to v
+  random_vector.normalize();
 
-  v += random_vector;
+  double k = std::cos(r_coeff(random_engine) * pi / 2);
+  // double k = r_coeff(random_engine);
+
+  v = (v * k + random_vector * (1 - k));
   v.normalize();
+
+  // v += random_vector;
+  // v.normalize();
 }
 
 Vector3d randomly_rotated(Vector3d direction) {
@@ -159,7 +166,7 @@ public:
 
   [[nodiscard]] RayIntersection
   intersect_at(const Ray &ray, const double distance) const override {
-    if (random_coefficient() > 0.75)
+    if (random_coefficient() > 0.25)
       return RayTermination{.value = 0};
 
     Vector3d origin = ray.origin + ray.direction * distance;
@@ -175,7 +182,7 @@ public:
 
   Sky(const Vector3d sun_direction, const double sun_angular_size)
       : sun_direction(sun_direction.normalized()),
-        sun_angular_size_cos(std::cos(sun_angular_size)){};
+        sun_angular_size_cos(std::cos(sun_angular_size / 2)){};
 
   [[nodiscard]] double
   intersection_distance(const Ray & /*ray*/) const override {
@@ -188,7 +195,7 @@ public:
     const bool into_sun =
         ray.direction.dot(sun_direction) > sun_angular_size_cos;
 
-    return RayTermination{.value = into_sun ? 1.0 : 0.25};
+    return RayTermination{.value = into_sun ? 15.0 : 0.25};
   }
 };
 
@@ -212,11 +219,17 @@ struct PixelValue {
     b /= count;
   }
 
-  [[nodiscard]] int int_r() const { return static_cast<int>(255.0 * r); }
+  [[nodiscard]] int int_r() const {
+    return std::min(255, static_cast<int>(255.0 * r));
+  }
 
-  [[nodiscard]] int int_g() const { return static_cast<int>(255.0 * g); }
+  [[nodiscard]] int int_g() const {
+    return std::min(255, static_cast<int>(255.0 * g));
+  }
 
-  [[nodiscard]] int int_b() const { return static_cast<int>(255.0 * b); }
+  [[nodiscard]] int int_b() const {
+    return std::min(255, static_cast<int>(255.0 * b));
+  }
 };
 
 struct CameraPixel {
@@ -228,7 +241,7 @@ struct CameraPixel {
   bool empty = true;
 
   void render(SceneRef scene) {
-    constexpr int iterations = 16;
+    constexpr int iterations = 2048;
     empty = false;
     for (int i = 0; i < iterations; i++)
       value.add(trace(scene));
@@ -243,12 +256,15 @@ struct CameraPixel {
   };
 
   static std::pair<double, const Object *>
-  closest_intersecting_object(SceneRef scene, const Ray &ray) {
+  closest_intersecting_object(SceneRef scene, const Object *prev_object,
+                              const Ray &ray) {
     double closest_distance = std::numeric_limits<double>::infinity();
     const Object *closest_object = nullptr;
     for (const auto &object : scene) {
+      if (object.get() == prev_object)
+        continue;
       const double distance = object->intersection_distance(ray);
-      if (distance >= 0 && distance <= closest_distance) {
+      if (distance > 0 && distance <= closest_distance) {
         closest_distance = distance;
         closest_object = object.get();
       }
@@ -258,16 +274,20 @@ struct CameraPixel {
 
   [[nodiscard]] PixelValue trace(SceneRef scene) const {
     Ray ray = emit();
-    RayTermination result{.value = 0};
+    RayTermination result{.value = -1};
 
-    constexpr int max_bounces = 64;
+    const Object *prev_object = nullptr;
+    constexpr int max_bounces = 16;
     for (int bounce = 0; bounce < max_bounces; bounce++) {
-      auto [distance, object] = closest_intersecting_object(scene, ray);
+      auto [distance, object] =
+          closest_intersecting_object(scene, prev_object, ray);
 
       if (object == nullptr) {
-        std::cout << format("Nothing hit\n");
+        log_message((boost::format("Nothing hit") % distance).str());
         break;
       }
+
+      prev_object = object;
 
       const RayIntersection this_intersection =
           object->intersect_at(ray, distance);
@@ -282,12 +302,19 @@ struct CameraPixel {
         ray = *bounced_ray;
       }
       if (bounce == max_bounces - 1)
-        std::cout << format("Max bounces reached\n");
+        log_message(
+            (boost::format("Max bounces reached, last distance: %e") % distance)
+                .str());
     }
 
     PixelValue value{};
 
-    value.r = value.g = value.b = result.value;
+    if (result.value >= 0)
+      value.r = value.g = value.b = result.value;
+    else {
+      value.r = result.value;
+      value.g = value.b = 0;
+    }
 
     // if (closest_intersection.intersected()) {
     //   double hit = exp(-closest_intersection.distance * 0.25);
@@ -299,6 +326,11 @@ struct CameraPixel {
     // }
 
     return value;
+  }
+
+  void log_message(const std::string message) const {
+    std::cout << boost::str(boost::format("%4dx%4d: %s\n") % coord.x() %
+                            coord.y() % message);
   }
 };
 
@@ -400,7 +432,7 @@ class Display {
 
   static void _sdl_error(std::string message) {
     throw std::runtime_error(
-        boost::str(format("%s: %s\n") % message % SDL_GetError()));
+        boost::str(boost::format("%s: %s\n") % message % SDL_GetError()));
   }
 
   std::chrono::time_point<std::chrono::system_clock> _measure_start_time;
@@ -530,13 +562,13 @@ int main(int /*argc*/, char * /*args*/[]) {
 
   auto screen_dimensions = display.screen_dimensions();
 
-  std::cout << format("Image dimensions: %dx%d\n") % screen_dimensions.width %
-                   screen_dimensions.height;
+  std::cout << boost::format("Image dimensions: %dx%d\n") %
+                   screen_dimensions.width % screen_dimensions.height;
 
   Camera camera(Vector3d(4, 2, 1.5), Vector3d(0, 0, 0),
                 Vector2i(screen_dimensions.width, screen_dimensions.height));
 
-  std::cout << format("Allocated camera\n");
+  std::cout << boost::format("Allocated camera\n");
   Scene scene;
 
   scene.reserve(4);
@@ -546,13 +578,13 @@ int main(int /*argc*/, char * /*args*/[]) {
   scene.push_back(std::make_unique<Sphere>(Vector3d(0, -0.5, 0.5), 0.5, 0.25));
   scene.push_back(std::make_unique<Sphere>(Vector3d(-0.6, 0, 0.6), 0.6, 0.75));
   scene.push_back(
-      std::make_unique<Sky>(Vector3d(1, -1, 1), deg_to_rad(30 /*0.53*/)));
+      std::make_unique<Sky>(Vector3d(2, 8, 4), deg_to_rad(30 /*0.53*/)));
 
-  std::cout << format("Allocated scene\n");
+  std::cout << boost::format("Allocated scene\n");
   display.draw_background();
   display.update();
 
-  std::cout << format("Window ready\n");
+  std::cout << boost::format("Window ready\n");
   display.start_measure();
 
   const auto thread_count = std::thread::hardware_concurrency();
