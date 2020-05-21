@@ -11,6 +11,7 @@
 #include <iostream>
 #include <memory>
 #include <optional>
+#include <ostream>
 #include <random>
 #include <span>
 #include <stdexcept>
@@ -32,12 +33,16 @@ using Eigen::Vector3d;
 
 Eigen::IOFormat v_fmt(Eigen::StreamPrecision, 0, ", ", ";", "", "", "(", ")");
 
+// Coordinate system is right-handed
+// direction_forward.cross(direction_left) == direction_up;
+static const Vector3d direction_forward(1, 0, 1);
+static const Vector3d direction_left(0, 1, 0);
 static const Vector3d direction_up(0, 0, 1);
 
 constexpr auto pi = M_PI;
 constexpr double deg_to_rad(const double deg) { return pi * (deg / 180.0); }
 
-Vector3d reflect(Vector3d const direction, Vector3d const normal) {
+Vector3d reflect(Vector3d const &direction, Vector3d const &normal) {
   return direction - 2 * direction.dot(normal) * normal;
 };
 
@@ -70,7 +75,7 @@ Vector3d randomly_rotated(Vector3d direction) {
   return direction;
 }
 
-Vector3d random_interpolated_vector(const Vector3d from, const Vector3d to) {
+Vector3d random_interpolated_vector(const Vector3d &from, const Vector3d &to) {
   static std::uniform_real_distribution<> t(0, 1);
   return Vector3d(std::lerp(from.x(), to.x(), t(random_engine)),
                   std::lerp(from.y(), to.y(), t(random_engine)),
@@ -117,9 +122,8 @@ public:
 
   // (pos - point).norm() == radius
 
-  Sphere(Vector3d initial_pos, double initial_radius, double blackness)
-      : pos(std::move(initial_pos)), radius(initial_radius),
-        blackness(blackness){};
+  Sphere(Vector3d pos, double radius, double blackness)
+      : pos(std::move(pos)), radius(radius), blackness(blackness){};
 
   [[nodiscard]] double intersection_distance(const Ray &ray) const override {
     // (pos - (ray.origin + ray.direction * distance)).norm == radius
@@ -152,8 +156,8 @@ public:
 
   // normal.dot(pos - point) == 0
 
-  Plane(Vector3d initial_pos, Vector3d initial_normal)
-      : pos(std::move(initial_pos)), normal(std::move(initial_normal)){};
+  Plane(Vector3d pos, Vector3d normal)
+      : pos(std::move(pos)), normal(std::move(normal)){};
 
   [[nodiscard]] double intersection_distance(const Ray &ray) const override {
 
@@ -180,7 +184,7 @@ public:
   const Vector3d sun_direction;
   const double sun_angular_size_cos;
 
-  Sky(const Vector3d sun_direction, const double sun_angular_size)
+  Sky(const Vector3d &sun_direction, const double sun_angular_size)
       : sun_direction(sun_direction.normalized()),
         sun_angular_size_cos(std::cos(sun_angular_size / 2)){};
 
@@ -241,7 +245,7 @@ struct CameraPixel {
   bool empty = true;
 
   void render(SceneRef scene) {
-    constexpr int iterations = 2048;
+    constexpr int iterations = 512;
     empty = false;
     for (int i = 0; i < iterations; i++)
       value.add(trace(scene));
@@ -328,7 +332,7 @@ struct CameraPixel {
     return value;
   }
 
-  void log_message(const std::string message) const {
+  void log_message(const std::string &message) const {
     std::cout << boost::str(boost::format("%4dx%4d: %s\n") % coord.x() %
                             coord.y() % message);
   }
@@ -340,18 +344,13 @@ class Camera {
 private:
   [[nodiscard]] CameraPixel _index_to_pixel(const unsigned int index) const {
     const Vector2i coord(index % image_size.x(), index / image_size.x());
-    const double aspect_ratio =
-        static_cast<double>(image_size.x()) / image_size.y();
     const Vector2d pixel_pos_top_left(
         (coord.x() + 0.0) / image_size.x() - 0.5,
-        (coord.y() + 0.0) / image_size.y() / aspect_ratio - 0.5);
+        ((coord.y() + 0.0) / image_size.y() - 0.5) / aspect_ratio);
     const Vector2d pixel_pos_bottom_right(
         (coord.x() + 1.0) / image_size.x() - 0.5,
-        (coord.y() + 1.0) / image_size.y() / aspect_ratio - 0.5);
+        ((coord.y() + 1.0) / image_size.y() - 0.5) / aspect_ratio);
 
-    Vector3d direction = (target - pos).normalized();
-    const Vector3d camera_right = direction.cross(direction_up);
-    const Vector3d camera_up = camera_right.cross(direction);
     Vector3d ray_direction_top_left =
         (direction + camera_right * pixel_pos_top_left.x() -
          camera_up * pixel_pos_bottom_right.y())
@@ -380,12 +379,23 @@ public:
   const Vector3d pos;
   const Vector3d target;
   const Vector2i image_size;
+  const double aspect_ratio;
+  const Vector3d direction;
+  const Vector3d camera_right, camera_up;
   Pixels pixels;
 
-  Camera(Vector3d const initial_pos, Vector3d const initial_target,
-         Vector2i const initial_image_size)
-      : pos(initial_pos), target(initial_target),
-        image_size(initial_image_size), pixels(_allocate_pixels()) {}
+  Camera(Vector3d pos, Vector3d target, Vector2i image_size)
+      : pos(std::move(pos)), target(std::move(target)),
+        image_size(std::move(image_size)),
+        aspect_ratio(static_cast<double>(image_size.x()) / image_size.y()),
+        direction((target - pos).normalized()),
+
+        camera_right(std::fabs(direction.dot(direction_up)) < 1
+                         ? direction.cross(direction_up)
+                         : -direction_left),
+        camera_up(camera_right.cross(direction)),
+
+        pixels(_allocate_pixels()) {}
 };
 
 class Caster {
@@ -545,7 +555,7 @@ public:
     _measure_start_time = std::chrono::system_clock::now();
   }
 
-  void complete_measure(std::string const message) {
+  void complete_measure(std::string const &message) {
 
     const auto duration =
         std::chrono::system_clock::now() - _measure_start_time;
@@ -565,20 +575,26 @@ int main(int /*argc*/, char * /*args*/[]) {
   std::cout << boost::format("Image dimensions: %dx%d\n") %
                    screen_dimensions.width % screen_dimensions.height;
 
-  Camera camera(Vector3d(4, 2, 1.5), Vector3d(0, 0, 0),
+  // Camera camera(Vector3d(4, 2, 1.5), Vector3d(0, 0, 0),
+  //               Vector2i(screen_dimensions.width, screen_dimensions.height));
+
+  Camera camera(Vector3d(0, 4, -4), Vector3d(0, 0, 0),
                 Vector2i(screen_dimensions.width, screen_dimensions.height));
 
   std::cout << boost::format("Allocated camera\n");
   Scene scene;
 
-  scene.reserve(4);
+  // scene.reserve(4);
 
+  /*
   scene.push_back(std::make_unique<Plane>(Vector3d(0, 0, 0), direction_up));
   scene.push_back(std::make_unique<Sphere>(Vector3d(0.3, 0.3, 0.3), 0.3, 0.5));
   scene.push_back(std::make_unique<Sphere>(Vector3d(0, -0.5, 0.5), 0.5, 0.25));
   scene.push_back(std::make_unique<Sphere>(Vector3d(-0.6, 0, 0.6), 0.6, 0.75));
+  */
+  scene.push_back(std::make_unique<Sphere>(Vector3d(0, 0, 0), 0.75, 0.75));
   scene.push_back(
-      std::make_unique<Sky>(Vector3d(2, 8, 4), deg_to_rad(30 /*0.53*/)));
+      std::make_unique<Sky>(Vector3d(0, 3, 0), deg_to_rad(30 /*0.53*/)));
 
   std::cout << boost::format("Allocated scene\n");
   display.draw_background();
