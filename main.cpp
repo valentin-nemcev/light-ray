@@ -10,11 +10,13 @@
 #include <csignal>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <random>
 #include <span>
 #include <stdexcept>
 #include <thread>
 #include <utility>
+#include <variant>
 
 // default constructors reference
 // https://en.cppreference.com/w/cpp/language/rule_of_three
@@ -36,101 +38,9 @@ static const Vector3d direction_up(0, 0, 1);
 constexpr auto pi = M_PI;
 constexpr double deg_to_rad(const double deg) { return pi * (deg / 180.0); }
 
-struct Ray {
-  const Vector3d origin;
-  const Vector3d direction;
+Vector3d reflect(Vector3d const direction, Vector3d const normal) {
+  return direction - 2 * direction.dot(normal) * normal;
 };
-
-struct RayIntersection {
-  double distance;
-  Vector3d point;
-  Vector3d normal;
-
-  [[nodiscard]] bool intersected() const { return distance >= 0; }
-};
-
-static const RayIntersection no_intersection = {.distance = -1};
-
-class Object {
-public:
-  [[nodiscard]] virtual RayIntersection intersect(const Ray &ray) const = 0;
-
-  Object() = default;
-  Object(const Object &) = default;
-  Object(Object &&) = default;
-  Object &operator=(const Object &) = default;
-  Object &operator=(Object &&) = default;
-  virtual ~Object() = default;
-};
-
-class Sphere : public Object {
-public:
-  const Vector3d pos;
-  const double radius;
-
-  // (pos - point).norm() == radius
-
-  Sphere(Vector3d initial_pos, double initial_radius)
-      : pos(std::move(initial_pos)), radius(initial_radius){};
-
-  [[nodiscard]] RayIntersection intersect(const Ray &ray) const override {
-    // (pos - (ray.origin + ray.direction * distance)).norm == radius
-
-    const double discriminant = pow(ray.direction.dot(ray.origin - pos), 2) -
-                                (ray.origin - pos).squaredNorm() +
-                                pow(radius, 2);
-    if (discriminant < 0) {
-      return no_intersection;
-    }
-
-    double distance = -ray.direction.dot(ray.origin - pos) - sqrt(discriminant);
-
-    Vector3d normal =
-        (pos - (ray.origin + ray.direction * distance)).normalized();
-    return {.distance = distance, .normal = normal};
-  }
-};
-
-class Plane : public Object {
-public:
-  const Vector3d pos;
-  const Vector3d normal;
-
-  // normal.dot(pos - point) == 0
-
-  Plane(Vector3d initial_pos, Vector3d initial_normal)
-      : pos(std::move(initial_pos)), normal(std::move(initial_normal)){};
-
-  [[nodiscard]] RayIntersection intersect(const Ray &ray) const override {
-
-    // normal.dot(pos - (ray.origin + ray.direction * distance)) == 0
-    // normal.dot(pos - ray.origin) - normal.dot(ray.direction) * distance == 0
-    // normal.dot(pos - ray.origin) / normal.dot(ray.direction) = distance
-
-    return {.distance =
-                normal.dot(pos - ray.origin) / normal.dot(ray.direction),
-            .normal = normal};
-  }
-};
-
-class Sky : public Object {
-public:
-  const Vector3d sun_direction;
-  const double sun_angular_size;
-
-  Sky(const Vector3d sun_direction, const double sun_angular_size)
-      : sun_direction(sun_direction.normalized()),
-        sun_angular_size(sun_angular_size){};
-
-  [[nodiscard]] RayIntersection intersect(const Ray &ray) const override {
-
-    return {.distance = std::numeric_limits<double>::infinity(),
-            .normal = -ray.direction};
-  }
-};
-
-using Scene = std::vector<std::unique_ptr<Object>>;
-using SceneRef = const std::vector<std::unique_ptr<Object>> &;
 
 std::random_device random_device;
 static thread_local std::default_random_engine random_engine(random_device());
@@ -148,12 +58,142 @@ void randomly_rotate(Vector3d &v) {
   v.normalize();
 }
 
+Vector3d randomly_rotated(Vector3d direction) {
+  randomly_rotate(direction);
+  return direction;
+}
+
 Vector3d random_interpolated_vector(const Vector3d from, const Vector3d to) {
   static std::uniform_real_distribution<> t(0, 1);
   return Vector3d(std::lerp(from.x(), to.x(), t(random_engine)),
                   std::lerp(from.y(), to.y(), t(random_engine)),
                   std::lerp(from.z(), to.z(), t(random_engine)));
 }
+
+double random_coefficient() {
+  static std::uniform_real_distribution<> t(0, 1);
+  return t(random_engine);
+}
+
+struct Ray {
+  Vector3d origin;
+  Vector3d direction;
+};
+
+struct RayTermination {
+  double value;
+};
+
+using RayIntersection = std::variant<RayTermination, Ray>;
+
+static const double no_intersection = -1;
+
+class Object {
+public:
+  [[nodiscard]] virtual double intersection_distance(const Ray &ray) const = 0;
+  [[nodiscard]] virtual RayIntersection intersect_at(const Ray &ray,
+                                                     double distance) const = 0;
+
+  Object() = default;
+  Object(const Object &) = default;
+  Object(Object &&) = default;
+  Object &operator=(const Object &) = default;
+  Object &operator=(Object &&) = default;
+  virtual ~Object() = default;
+};
+
+class Sphere : public Object {
+public:
+  const Vector3d pos;
+  const double radius;
+  const double blackness;
+
+  // (pos - point).norm() == radius
+
+  Sphere(Vector3d initial_pos, double initial_radius, double blackness)
+      : pos(std::move(initial_pos)), radius(initial_radius),
+        blackness(blackness){};
+
+  [[nodiscard]] double intersection_distance(const Ray &ray) const override {
+    // (pos - (ray.origin + ray.direction * distance)).norm == radius
+
+    const double discriminant = pow(ray.direction.dot(ray.origin - pos), 2) -
+                                (ray.origin - pos).squaredNorm() +
+                                pow(radius, 2);
+    if (discriminant < 0) {
+      return no_intersection;
+    }
+    return -ray.direction.dot(ray.origin - pos) - sqrt(discriminant);
+  }
+
+  [[nodiscard]] RayIntersection
+  intersect_at(const Ray &ray, const double distance) const override {
+    if (random_coefficient() > blackness)
+      return RayTermination{.value = 0};
+
+    Vector3d origin = ray.origin + ray.direction * distance;
+    Vector3d normal = (pos - origin).normalized();
+    randomly_rotate(normal);
+    return Ray{.origin = origin, .direction = reflect(ray.direction, normal)};
+  }
+};
+
+class Plane : public Object {
+public:
+  const Vector3d pos;
+  const Vector3d normal;
+
+  // normal.dot(pos - point) == 0
+
+  Plane(Vector3d initial_pos, Vector3d initial_normal)
+      : pos(std::move(initial_pos)), normal(std::move(initial_normal)){};
+
+  [[nodiscard]] double intersection_distance(const Ray &ray) const override {
+
+    // normal.dot(pos - (ray.origin + ray.direction * distance)) == 0
+    // normal.dot(pos - ray.origin) - normal.dot(ray.direction) * distance == 0
+    // normal.dot(pos - ray.origin) / normal.dot(ray.direction) = distance
+
+    return normal.dot(pos - ray.origin) / normal.dot(ray.direction);
+  }
+
+  [[nodiscard]] RayIntersection
+  intersect_at(const Ray &ray, const double distance) const override {
+    if (random_coefficient() > 0.75)
+      return RayTermination{.value = 0};
+
+    Vector3d origin = ray.origin + ray.direction * distance;
+    return Ray{.origin = origin,
+               .direction = reflect(ray.direction, randomly_rotated(normal))};
+  }
+};
+
+class Sky : public Object {
+public:
+  const Vector3d sun_direction;
+  const double sun_angular_size_cos;
+
+  Sky(const Vector3d sun_direction, const double sun_angular_size)
+      : sun_direction(sun_direction.normalized()),
+        sun_angular_size_cos(std::cos(sun_angular_size)){};
+
+  [[nodiscard]] double
+  intersection_distance(const Ray & /*ray*/) const override {
+    return std::numeric_limits<double>::infinity();
+  }
+
+  [[nodiscard]] RayIntersection
+  intersect_at(const Ray &ray, double /*distance*/) const override {
+
+    const bool into_sun =
+        ray.direction.dot(sun_direction) > sun_angular_size_cos;
+
+    return RayTermination{.value = into_sun ? 1.0 : 0.25};
+  }
+};
+
+using Scene = std::vector<std::unique_ptr<Object>>;
+using SceneRef = const std::vector<std::unique_ptr<Object>> &;
 
 struct PixelValue {
   double r;
@@ -188,7 +228,7 @@ struct CameraPixel {
   bool empty = true;
 
   void render(SceneRef scene) {
-    constexpr int iterations = 8;
+    constexpr int iterations = 16;
     empty = false;
     for (int i = 0; i < iterations; i++)
       value.add(trace(scene));
@@ -202,31 +242,61 @@ struct CameraPixel {
             random_interpolated_vector(top_left, bottom_right).normalized()};
   };
 
-  [[nodiscard]] PixelValue trace(SceneRef scene) const {
-    const Ray ray = emit();
-
-    RayIntersection closest_intersection = no_intersection;
-    for (const auto &shape : scene) {
-      RayIntersection intersection = shape->intersect(ray);
-      if (intersection.intersected() &&
-          (!closest_intersection.intersected() ||
-           intersection.distance < closest_intersection.distance)) {
-        closest_intersection = intersection;
+  static std::pair<double, const Object *>
+  closest_intersecting_object(SceneRef scene, const Ray &ray) {
+    double closest_distance = std::numeric_limits<double>::infinity();
+    const Object *closest_object = nullptr;
+    for (const auto &object : scene) {
+      const double distance = object->intersection_distance(ray);
+      if (distance >= 0 && distance <= closest_distance) {
+        closest_distance = distance;
+        closest_object = object.get();
       }
     }
+    return std::make_pair(closest_distance, closest_object);
+  }
 
-    randomly_rotate(closest_intersection.normal);
+  [[nodiscard]] PixelValue trace(SceneRef scene) const {
+    Ray ray = emit();
+    RayTermination result{.value = 0};
+
+    constexpr int max_bounces = 64;
+    for (int bounce = 0; bounce < max_bounces; bounce++) {
+      auto [distance, object] = closest_intersecting_object(scene, ray);
+
+      if (object == nullptr) {
+        std::cout << format("Nothing hit\n");
+        break;
+      }
+
+      const RayIntersection this_intersection =
+          object->intersect_at(ray, distance);
+
+      if (const auto *termination =
+              std::get_if<RayTermination>(&this_intersection)) {
+        result = *termination;
+        break;
+      }
+      if (const auto *const bounced_ray =
+              std::get_if<Ray>(&this_intersection)) {
+        ray = *bounced_ray;
+      }
+      if (bounce == max_bounces - 1)
+        std::cout << format("Max bounces reached\n");
+    }
 
     PixelValue value{};
 
-    if (closest_intersection.intersected()) {
-      double hit = exp(-closest_intersection.distance * 0.25);
-      value.r = hit * (closest_intersection.normal.x() / 2 + 0.5);
-      value.g = hit * (closest_intersection.normal.y() / 2 + 0.5);
-      value.b = hit * (closest_intersection.normal.z() / 2 + 0.5);
-    } else {
-      value.r = value.g = value.b = 0;
-    }
+    value.r = value.g = value.b = result.value;
+
+    // if (closest_intersection.intersected()) {
+    //   double hit = exp(-closest_intersection.distance * 0.25);
+    //   value.r = hit * (closest_intersection.normal.x() / 2 + 0.5);
+    //   value.g = hit * (closest_intersection.normal.y() / 2 + 0.5);
+    //   value.b = hit * (closest_intersection.normal.z() / 2 + 0.5);
+    // } else {
+    //   value.r = value.g = value.b = 0;
+    // }
 
     return value;
   }
@@ -472,10 +542,11 @@ int main(int /*argc*/, char * /*args*/[]) {
   scene.reserve(4);
 
   scene.push_back(std::make_unique<Plane>(Vector3d(0, 0, 0), direction_up));
-  scene.push_back(std::make_unique<Sphere>(Vector3d(0.3, 0.3, 0.3), 0.3));
-  scene.push_back(std::make_unique<Sphere>(Vector3d(0, -0.5, 0.5), 0.5));
-  scene.push_back(std::make_unique<Sphere>(Vector3d(-0.6, 0, 0.6), 0.6));
-  scene.push_back(std::make_unique<Sky>(Vector3d(1, -1, 1), deg_to_rad(0.53)));
+  scene.push_back(std::make_unique<Sphere>(Vector3d(0.3, 0.3, 0.3), 0.3, 0.5));
+  scene.push_back(std::make_unique<Sphere>(Vector3d(0, -0.5, 0.5), 0.5, 0.25));
+  scene.push_back(std::make_unique<Sphere>(Vector3d(-0.6, 0, 0.6), 0.6, 0.75));
+  scene.push_back(
+      std::make_unique<Sky>(Vector3d(1, -1, 1), deg_to_rad(30 /*0.53*/)));
 
   std::cout << format("Allocated scene\n");
   display.draw_background();
