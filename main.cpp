@@ -42,38 +42,54 @@ static const Vector3d direction_up(0, 0, 1);
 constexpr auto pi = M_PI;
 constexpr double deg_to_rad(const double deg) { return pi * (deg / 180.0); }
 
-Vector3d reflect(Vector3d const &direction, Vector3d const &normal) {
+Vector3d reflect(Vector3d const &direction, Vector3d const normal) {
   return direction - 2 * direction.dot(normal) * normal;
 };
 
 std::random_device random_device;
 static thread_local std::mt19937_64 random_engine(random_device());
 
-void randomly_rotate(Vector3d &v) {
+Vector3d randomly_rotated(const Vector3d &vector) {
   static thread_local std::uniform_real_distribution<> r_coord(-1, 1);
   static thread_local std::uniform_real_distribution<> r_coeff(0, 1);
+  static thread_local std::uniform_real_distribution<> r_2pi(0, 2 * pi);
+  static thread_local std::uniform_real_distribution<> r_half_pi(0, pi / 4);
   static thread_local std::uniform_real_distribution<> r_length(
       0, std::numeric_limits<double>::infinity());
 
-  Vector3d random_vector(r_coord(random_engine), r_coord(random_engine),
-                         r_coord(random_engine));
+  Vector3d relative_left(std::fabs(vector.dot(direction_up)) < 1
+                             ? direction_up.cross(vector)
+                             : direction_left);
+  relative_left.normalize();
+  const Vector3d relative_up(vector.cross(relative_left));
 
-  random_vector -= random_vector.dot(v) * v; // make it orthogonal to v
-  random_vector.normalize();
+  const double alpha = r_2pi(random_engine);
+  const double beta = r_half_pi(random_engine);
+  // const double k = r_coeff(random_engine);
 
-  double k = std::cos(r_coeff(random_engine) * pi / 2);
+  return (std::sin(beta) * std::sin(alpha) * relative_up +
+          std::sin(beta) * std::cos(alpha) * relative_left +
+          std::cos(beta) * vector)
+      .normalized();
+  // vector = k * std::sin(alpha) * relative_up +
+  //          k * std::cos(alpha) * relative_left + vector;
+  // vector.normalize();
+
+  // Vector3d random_vector(r_coord(random_engine), r_coord(random_engine),
+  //                        r_coord(random_engine));
+
+  // random_vector -=
+  //     random_vector.dot(vector) * vector; // make it orthogonal to v
+  // random_vector.normalize();
+
+  // double k = std::cos(r_coeff(random_engine) * pi / 2);
   // double k = r_coeff(random_engine);
 
-  v = (v * k + random_vector * (1 - k));
-  v.normalize();
+  // vector = (vector * k + random_vector * (1 - k));
+  // vector.normalize();
 
   // v += random_vector;
   // v.normalize();
-}
-
-Vector3d randomly_rotated(Vector3d direction) {
-  randomly_rotate(direction);
-  return direction;
 }
 
 Vector3d random_interpolated_vector(const Vector3d &from, const Vector3d &to) {
@@ -144,8 +160,7 @@ public:
       return RayTermination{.value = 0};
 
     Vector3d origin = ray.origin + ray.direction * distance;
-    Vector3d normal = (pos - origin).normalized();
-    randomly_rotate(normal);
+    Vector3d normal = randomly_rotated((pos - origin).normalized());
     return Ray{.origin = origin, .direction = reflect(ray.direction, normal)};
   }
 };
@@ -171,7 +186,7 @@ public:
 
   [[nodiscard]] RayIntersection
   intersect_at(const Ray &ray, const double distance) const override {
-    if (random_coefficient() > 0.25)
+    if (random_coefficient() > 0.75)
       return RayTermination{.value = 0};
 
     Vector3d origin = ray.origin + ray.direction * distance;
@@ -200,7 +215,7 @@ public:
     const bool into_sun =
         ray.direction.dot(sun_direction) > sun_angular_size_cos;
 
-    return RayTermination{.value = into_sun ? 15.0 : 0.25};
+    return RayTermination{.value = into_sun ? 125.0 : 0.125};
   }
 };
 
@@ -246,7 +261,7 @@ struct CameraPixel {
   bool empty = true;
 
   void render(SceneRef scene) {
-    constexpr int iterations = 512;
+    constexpr int iterations = 1024;
     empty = false;
     for (int i = 0; i < iterations; i++)
       value.add(trace(scene));
@@ -576,26 +591,25 @@ int main(int /*argc*/, char * /*args*/[]) {
   std::cout << boost::format("Image dimensions: %dx%d\n") %
                    screen_dimensions.width % screen_dimensions.height;
 
-  // Camera camera(Vector3d(4, 2, 1.5), Vector3d(0, 0, 0),
-  //               Vector2i(screen_dimensions.width, screen_dimensions.height));
-
-  Camera camera(Vector3d(0, 0, 4), Vector3d(0, 0, 0),
+  Camera camera(Vector3d(4, 2, 1.5), Vector3d(0, 0, 0.5),
                 Vector2i(screen_dimensions.width, screen_dimensions.height));
+
+  // Camera camera(Vector3d(0, 0, 4), Vector3d(0, 0, 0),
+  //               Vector2i(screen_dimensions.width, screen_dimensions.height));
 
   std::cout << boost::format("Allocated camera\n");
   Scene scene;
 
   // scene.reserve(4);
 
-  /*
   scene.push_back(std::make_unique<Plane>(Vector3d(0, 0, 0), direction_up));
-  scene.push_back(std::make_unique<Sphere>(Vector3d(0.3, 0.3, 0.3), 0.3, 0.5));
-  scene.push_back(std::make_unique<Sphere>(Vector3d(0, -0.5, 0.5), 0.5, 0.25));
-  scene.push_back(std::make_unique<Sphere>(Vector3d(-0.6, 0, 0.6), 0.6, 0.75));
-  */
-  scene.push_back(std::make_unique<Sphere>(Vector3d(0, 0, 0), 0.75, 0.75));
+  // scene.push_back(std::make_unique<Sphere>(Vector3d(0.3, 0.3, 0.3), 0.3,
+  // 0.5)); scene.push_back(std::make_unique<Sphere>(Vector3d(0, -0.5, 0.5),
+  // 0.5, 0.25)); scene.push_back(std::make_unique<Sphere>(Vector3d(-0.6, 0,
+  // 0.6), 0.6, 0.75)); scene.push_back(std::make_unique<Sphere>(Vector3d(0, 0,
+  // 0), 0.75, 0.75));
   scene.push_back(
-      std::make_unique<Sky>(Vector3d(1, 1, 0), deg_to_rad(30 /*0.53*/)));
+      std::make_unique<Sky>(Vector3d(-4, -2, 0.5), deg_to_rad(1.5 /*0.53*/)));
 
   std::cout << boost::format("Allocated scene\n");
   display.draw_background();
