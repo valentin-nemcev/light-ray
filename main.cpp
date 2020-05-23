@@ -87,6 +87,10 @@ double random_coefficient() {
 struct Ray {
   Vector3d origin;
   Vector3d direction;
+
+  [[nodiscard]] Vector3d advance(const double distance) const {
+    return origin + direction * distance;
+  }
 };
 
 struct RayTermination {
@@ -97,30 +101,70 @@ using RayIntersection = std::variant<RayTermination, Ray>;
 
 static const double no_intersection = -1;
 
-class Object {
+class Shape {
 public:
   [[nodiscard]] virtual double intersection_distance(const Ray &ray) const = 0;
-  [[nodiscard]] virtual RayIntersection intersect_at(const Ray &ray,
-                                                     double distance) const = 0;
+  [[nodiscard]] virtual Vector3d normal_at(const Vector3d &point) const = 0;
 
-  Object() = default;
-  Object(const Object &) = default;
-  Object(Object &&) = default;
-  Object &operator=(const Object &) = default;
-  Object &operator=(Object &&) = default;
-  virtual ~Object() = default;
+  Shape() = default;
+  Shape(const Shape &) = default;
+  Shape(Shape &&) = default;
+  Shape &operator=(const Shape &) = default;
+  Shape &operator=(Shape &&) = default;
+  virtual ~Shape() = default;
 };
 
-class Sphere : public Object {
+class Surface {
+public:
+  [[nodiscard]] virtual RayIntersection
+  intersect_at(const Vector3d &point, const Vector3d &normal,
+               const Vector3d &direction) const = 0;
+
+  Surface() = default;
+  Surface(const Surface &) = default;
+  Surface(Surface &&) = default;
+  Surface &operator=(const Surface &) = default;
+  Surface &operator=(Surface &&) = default;
+  virtual ~Surface() = default;
+};
+
+class Object {
+public:
+  const std::unique_ptr<const Shape> shape;
+  const std::unique_ptr<const Surface> surface;
+
+  Object(std::unique_ptr<const Shape> shape,
+         std::unique_ptr<const Surface> surface)
+      : shape(std::move(shape)), surface(std::move(surface)) {}
+};
+
+class Reflective : public Surface {
+public:
+  const double blackness;
+
+  Reflective(double blackness) : blackness(blackness){};
+
+  [[nodiscard]] RayIntersection
+  intersect_at(const Vector3d &point, const Vector3d &normal,
+               const Vector3d &direction) const override {
+
+    if (random_coefficient() > blackness)
+      return RayTermination{.value = 0};
+
+    Vector3d surface_normal = randomly_rotated(normal);
+    return Ray{.origin = point,
+               .direction = reflect(direction, surface_normal)};
+  };
+};
+
+class Sphere : public Shape {
 public:
   const Vector3d pos;
   const double radius;
-  const double blackness;
 
   // (pos - point).norm() == radius
 
-  Sphere(Vector3d pos, double radius, double blackness)
-      : pos(std::move(pos)), radius(radius), blackness(blackness){};
+  Sphere(Vector3d pos, double radius) : pos(std::move(pos)), radius(radius){};
 
   [[nodiscard]] double intersection_distance(const Ray &ray) const override {
     // (pos - (ray.origin + ray.direction * distance)).norm == radius
@@ -128,24 +172,18 @@ public:
     const double discriminant = pow(ray.direction.dot(ray.origin - pos), 2) -
                                 (ray.origin - pos).squaredNorm() +
                                 pow(radius, 2);
-    if (discriminant < 0) {
+    if (discriminant < 0)
       return no_intersection;
-    }
+
     return -ray.direction.dot(ray.origin - pos) - sqrt(discriminant);
   }
 
-  [[nodiscard]] RayIntersection
-  intersect_at(const Ray &ray, const double distance) const override {
-    if (random_coefficient() > blackness)
-      return RayTermination{.value = 0};
-
-    Vector3d origin = ray.origin + ray.direction * distance;
-    Vector3d normal = randomly_rotated((pos - origin).normalized());
-    return Ray{.origin = origin, .direction = reflect(ray.direction, normal)};
+  [[nodiscard]] Vector3d normal_at(const Vector3d &point) const override {
+    return (pos - point).normalized();
   }
 };
 
-class Plane : public Object {
+class Plane : public Shape {
 public:
   const Vector3d pos;
   const Vector3d normal;
@@ -164,43 +202,44 @@ public:
     return normal.dot(pos - ray.origin) / normal.dot(ray.direction);
   }
 
-  [[nodiscard]] RayIntersection
-  intersect_at(const Ray &ray, const double distance) const override {
-    if (random_coefficient() > 0.75)
-      return RayTermination{.value = 0};
-
-    Vector3d origin = ray.origin + ray.direction * distance;
-    return Ray{.origin = origin,
-               .direction = reflect(ray.direction, randomly_rotated(normal))};
+  [[nodiscard]] Vector3d normal_at(const Vector3d & /*point*/) const override {
+    return normal;
   }
 };
 
-class Sky : public Object {
+class SkyShape : public Shape {
+public:
+  [[nodiscard]] double
+  intersection_distance(const Ray & /*ray*/) const override {
+    return std::numeric_limits<double>::infinity();
+  }
+
+  [[nodiscard]] Vector3d normal_at(const Vector3d &direction) const override {
+    return -direction;
+  }
+};
+
+class SkySurface : public Surface {
 public:
   const Vector3d sun_direction;
   const double sun_angular_size_cos;
   const double sun_brightness;
   const double sky_brightness;
 
-  Sky(const Vector3d &sun_direction, const double sun_angular_size,
-      const double sun_brightness, const double sky_brightness)
+  SkySurface(const Vector3d &sun_direction, const double sun_angular_size,
+             const double sun_brightness, const double sky_brightness)
       : sun_direction(sun_direction.normalized()),
         sun_angular_size_cos(std::cos(sun_angular_size / 2)),
         sun_brightness(sun_brightness), sky_brightness(sky_brightness){};
 
-  [[nodiscard]] double
-  intersection_distance(const Ray & /*ray*/) const override {
-    return std::numeric_limits<double>::infinity();
-  }
-
   [[nodiscard]] RayIntersection
-  intersect_at(const Ray &ray, double /*distance*/) const override {
+  intersect_at(const Vector3d & /* point */, const Vector3d & /*normal*/,
+               const Vector3d &direction) const override {
 
-    const bool into_sun =
-        ray.direction.dot(sun_direction) > sun_angular_size_cos;
+    const bool into_sun = direction.dot(sun_direction) > sun_angular_size_cos;
 
     return RayTermination{.value = into_sun ? sun_brightness : sky_brightness};
-  }
+  };
 };
 
 using Scene = std::vector<std::unique_ptr<Object>>;
@@ -267,7 +306,7 @@ struct CameraPixel {
     for (const auto &object : scene) {
       if (object.get() == prev_object)
         continue;
-      const double distance = object->intersection_distance(ray);
+      const double distance = object->shape->intersection_distance(ray);
       if (distance > 0 && distance <= closest_distance) {
         closest_distance = distance;
         closest_object = object.get();
@@ -293,8 +332,10 @@ struct CameraPixel {
 
       prev_object = object;
 
+      const Vector3d point = ray.advance(distance);
+      const Vector3d normal = object->shape->normal_at(point);
       const RayIntersection this_intersection =
-          object->intersect_at(ray, distance);
+          object->surface->intersect_at(point, normal, ray.direction);
 
       if (const auto *termination =
               std::get_if<RayTermination>(&this_intersection)) {
@@ -575,15 +616,22 @@ int main(int /*argc*/, char * /*args*/[]) {
   std::cout << boost::format("Allocated camera\n");
   Scene scene;
 
-  scene.push_back(std::make_unique<Plane>(Vector3d(0, 0, 0), direction_up));
-  scene.push_back(std::make_unique<Sphere>(Vector3d(0.3, 0.3, 0.3), 0.3, 0.5));
+  scene.push_back(std::make_unique<Object>(
+      std::make_unique<Plane>(Vector3d(0, 0, 0), direction_up),
+      std::make_unique<Reflective>(0.25)));
+  scene.push_back(std::make_unique<Object>(
+
+      std::make_unique<Sphere>(Vector3d(0.3, 0.3, 0.3), 0.3),
+      std::make_unique<Reflective>(0.5)));
   // scene.push_back(std::make_unique<Sphere>(Vector3d(0, -0.5, 0.5), 0.5,
   // 0.25)); scene.push_back(std::make_unique<Sphere>(Vector3d(-0.6, 0, 0.6),
   // 0.6, 0.75)); scene.push_back(std::make_unique<Sphere>(Vector3d(0, 0, 0),
   // 0.75, 0.75));
 
-  scene.push_back(std::make_unique<Sky>(Vector3d(-4, -2, 0.5),
-                                        deg_to_rad(1.5 /*0.53*/), 125, 0.125));
+  scene.push_back(std::make_unique<Object>(
+      std::make_unique<SkyShape>(),
+      std::make_unique<SkySurface>(Vector3d(-4, -2, 0.5),
+                                   deg_to_rad(1.5 /*0.53*/), 125, 0.125)));
 
   std::cout << boost::format("Allocated scene\n");
   display.draw_background();
