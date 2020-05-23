@@ -33,7 +33,7 @@ using Eigen::Vector3d;
 
 Eigen::IOFormat v_fmt(Eigen::StreamPrecision, 0, ", ", ";", "", "", "(", ")");
 
-// Coordinate system is right-handed
+// Coordinate system is right-handed, i.e.
 // direction_forward.cross(direction_left) == direction_up;
 static const Vector3d direction_forward(1, 0, 1);
 static const Vector3d direction_left(0, 1, 0);
@@ -42,7 +42,7 @@ static const Vector3d direction_up(0, 0, 1);
 constexpr auto pi = M_PI;
 constexpr double deg_to_rad(const double deg) { return pi * (deg / 180.0); }
 
-Vector3d reflect(Vector3d const &direction, Vector3d const normal) {
+Vector3d reflect(Vector3d const &direction, Vector3d const &normal) {
   return direction - 2 * direction.dot(normal) * normal;
 };
 
@@ -65,31 +65,11 @@ Vector3d randomly_rotated(const Vector3d &vector) {
 
   const double alpha = r_2pi(random_engine);
   const double beta = r_half_pi(random_engine);
-  // const double k = r_coeff(random_engine);
 
   return (std::sin(beta) * std::sin(alpha) * relative_up +
           std::sin(beta) * std::cos(alpha) * relative_left +
           std::cos(beta) * vector)
       .normalized();
-  // vector = k * std::sin(alpha) * relative_up +
-  //          k * std::cos(alpha) * relative_left + vector;
-  // vector.normalize();
-
-  // Vector3d random_vector(r_coord(random_engine), r_coord(random_engine),
-  //                        r_coord(random_engine));
-
-  // random_vector -=
-  //     random_vector.dot(vector) * vector; // make it orthogonal to v
-  // random_vector.normalize();
-
-  // double k = std::cos(r_coeff(random_engine) * pi / 2);
-  // double k = r_coeff(random_engine);
-
-  // vector = (vector * k + random_vector * (1 - k));
-  // vector.normalize();
-
-  // v += random_vector;
-  // v.normalize();
 }
 
 Vector3d random_interpolated_vector(const Vector3d &from, const Vector3d &to) {
@@ -199,10 +179,14 @@ class Sky : public Object {
 public:
   const Vector3d sun_direction;
   const double sun_angular_size_cos;
+  const double sun_brightness;
+  const double sky_brightness;
 
-  Sky(const Vector3d &sun_direction, const double sun_angular_size)
+  Sky(const Vector3d &sun_direction, const double sun_angular_size,
+      const double sun_brightness, const double sky_brightness)
       : sun_direction(sun_direction.normalized()),
-        sun_angular_size_cos(std::cos(sun_angular_size / 2)){};
+        sun_angular_size_cos(std::cos(sun_angular_size / 2)),
+        sun_brightness(sun_brightness), sky_brightness(sky_brightness){};
 
   [[nodiscard]] double
   intersection_distance(const Ray & /*ray*/) const override {
@@ -215,7 +199,7 @@ public:
     const bool into_sun =
         ray.direction.dot(sun_direction) > sun_angular_size_cos;
 
-    return RayTermination{.value = into_sun ? 125.0 : 0.125};
+    return RayTermination{.value = into_sun ? sun_brightness : sky_brightness};
   }
 };
 
@@ -335,15 +319,6 @@ struct CameraPixel {
       value.r = result.value;
       value.g = value.b = 0;
     }
-
-    // if (closest_intersection.intersected()) {
-    //   double hit = exp(-closest_intersection.distance * 0.25);
-    //   value.r = hit * (closest_intersection.normal.x() / 2 + 0.5);
-    //   value.g = hit * (closest_intersection.normal.y() / 2 + 0.5);
-    //   value.b = hit * (closest_intersection.normal.z() / 2 + 0.5);
-    // } else {
-    //   value.r = value.g = value.b = 0;
-    // }
 
     return value;
   }
@@ -600,16 +575,15 @@ int main(int /*argc*/, char * /*args*/[]) {
   std::cout << boost::format("Allocated camera\n");
   Scene scene;
 
-  // scene.reserve(4);
-
   scene.push_back(std::make_unique<Plane>(Vector3d(0, 0, 0), direction_up));
-  // scene.push_back(std::make_unique<Sphere>(Vector3d(0.3, 0.3, 0.3), 0.3,
-  // 0.5)); scene.push_back(std::make_unique<Sphere>(Vector3d(0, -0.5, 0.5),
-  // 0.5, 0.25)); scene.push_back(std::make_unique<Sphere>(Vector3d(-0.6, 0,
-  // 0.6), 0.6, 0.75)); scene.push_back(std::make_unique<Sphere>(Vector3d(0, 0,
-  // 0), 0.75, 0.75));
-  scene.push_back(
-      std::make_unique<Sky>(Vector3d(-4, -2, 0.5), deg_to_rad(1.5 /*0.53*/)));
+  scene.push_back(std::make_unique<Sphere>(Vector3d(0.3, 0.3, 0.3), 0.3, 0.5));
+  // scene.push_back(std::make_unique<Sphere>(Vector3d(0, -0.5, 0.5), 0.5,
+  // 0.25)); scene.push_back(std::make_unique<Sphere>(Vector3d(-0.6, 0, 0.6),
+  // 0.6, 0.75)); scene.push_back(std::make_unique<Sphere>(Vector3d(0, 0, 0),
+  // 0.75, 0.75));
+
+  scene.push_back(std::make_unique<Sky>(Vector3d(-4, -2, 0.5),
+                                        deg_to_rad(1.5 /*0.53*/), 125, 0.125));
 
   std::cout << boost::format("Allocated scene\n");
   display.draw_background();
