@@ -138,6 +138,39 @@ public:
       : shape(std::move(shape)), surface(std::move(surface)) {}
 };
 
+class Diffuse : public Surface {
+public:
+  const double blackness;
+
+  Diffuse(double blackness) : blackness(blackness){};
+
+  [[nodiscard]] RayIntersection
+  intersect_at(const Vector3d &point, const Vector3d &normal,
+               const Vector3d & /*direction*/) const override {
+
+    const double beta =
+        std::uniform_real_distribution<double>(0, pi)(random_engine);
+
+    if (random_coefficient() > std::cos(beta))
+      return RayTermination{.value = 0};
+
+    Vector3d relative_left(std::fabs(normal.dot(direction_up)) < 1
+                               ? direction_up.cross(normal)
+                               : direction_left);
+    relative_left.normalize();
+    const Vector3d relative_up(normal.cross(relative_left));
+
+    const double alpha =
+        std::uniform_real_distribution<double>(0, 2 * pi)(random_engine);
+
+    const auto reflected = (std::sin(beta) * std::sin(alpha) * relative_up +
+                            std::sin(beta) * std::cos(alpha) * relative_left +
+                            std::cos(beta) * normal)
+                               .normalized();
+    return Ray{.origin = point, .direction = reflected};
+  };
+};
+
 class Reflective : public Surface {
 public:
   const double blackness;
@@ -179,7 +212,7 @@ public:
   }
 
   [[nodiscard]] Vector3d normal_at(const Vector3d &point) const override {
-    return (pos - point).normalized();
+    return (point - pos).normalized();
   }
 };
 
@@ -284,7 +317,7 @@ struct CameraPixel {
   bool empty = true;
 
   void render(SceneRef scene) {
-    constexpr int iterations = 1024;
+    const int iterations = std::pow(2, 18);
     empty = false;
     for (int i = 0; i < iterations; i++)
       value.add(trace(scene));
@@ -607,22 +640,27 @@ int main(int /*argc*/, char * /*args*/[]) {
   std::cout << boost::format("Image dimensions: %dx%d\n") %
                    screen_dimensions.width % screen_dimensions.height;
 
-  Camera camera(Vector3d(4, 2, 1.5), Vector3d(0, 0, 0.5),
-                Vector2i(screen_dimensions.width, screen_dimensions.height));
-
-  // Camera camera(Vector3d(0, 0, 4), Vector3d(0, 0, 0),
+  // Camera camera(Vector3d(4, 2, 1.5), Vector3d(0, 0, 0.5),
   //               Vector2i(screen_dimensions.width, screen_dimensions.height));
+
+  Camera camera(Vector3d(2, 3, 4), Vector3d(0, 0, 0.5),
+                Vector2i(screen_dimensions.width, screen_dimensions.height));
 
   std::cout << boost::format("Allocated camera\n");
   Scene scene;
 
   scene.push_back(std::make_unique<Object>(
       std::make_unique<Plane>(Vector3d(0, 0, 0), direction_up),
-      std::make_unique<Reflective>(0.25)));
+      std::make_unique<Diffuse>(0.25)));
   scene.push_back(std::make_unique<Object>(
-
       std::make_unique<Sphere>(Vector3d(0.3, 0.3, 0.3), 0.3),
-      std::make_unique<Reflective>(0.5)));
+      std::make_unique<Diffuse>(0.5)));
+  scene.push_back(std::make_unique<Object>(
+      std::make_unique<Sphere>(Vector3d(0, -0.5, 0.4), 0.4),
+      std::make_unique<Diffuse>(0.5)));
+  scene.push_back(std::make_unique<Object>(
+      std::make_unique<Sphere>(Vector3d(-0.8, -0, 0.6), 0.6),
+      std::make_unique<Diffuse>(0.5)));
   // scene.push_back(std::make_unique<Sphere>(Vector3d(0, -0.5, 0.5), 0.5,
   // 0.25)); scene.push_back(std::make_unique<Sphere>(Vector3d(-0.6, 0, 0.6),
   // 0.6, 0.75)); scene.push_back(std::make_unique<Sphere>(Vector3d(0, 0, 0),
@@ -630,8 +668,8 @@ int main(int /*argc*/, char * /*args*/[]) {
 
   scene.push_back(std::make_unique<Object>(
       std::make_unique<SkyShape>(),
-      std::make_unique<SkySurface>(Vector3d(-4, -2, 0.5),
-                                   deg_to_rad(1.5 /*0.53*/), 125, 0.125)));
+      std::make_unique<SkySurface>(Vector3d(-4, 6, 4), deg_to_rad(15 /*0.53*/),
+                                   25, 0.25)));
 
   std::cout << boost::format("Allocated scene\n");
   display.draw_background();
