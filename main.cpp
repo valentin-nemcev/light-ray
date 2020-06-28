@@ -468,11 +468,13 @@ class Caster {
   SceneRef _scene;
 
   std::thread _thread;
-  bool _is_rendering = false;
+  std::atomic<bool> _is_rendering = false;
 
   void _render() {
     for (auto &pixel : _pixel_span) {
       pixel.render(_scene);
+      if (!_is_rendering)
+        break;
     }
     _is_rendering = false;
   }
@@ -495,7 +497,8 @@ public:
     _thread = std::thread(&Caster::_render, this);
   }
 
-  void wait_until_rendered() {
+  void stop_rendering() {
+    _is_rendering = false;
     if (_thread.joinable())
       _thread.join();
   }
@@ -707,7 +710,7 @@ int main(int /*argc*/, char * /*args*/[]) {
   }
 
   for (auto &caster : casters)
-    caster->wait_until_rendered();
+    caster->stop_rendering();
   display.complete_measure("Rendered in ");
 
   while (display.is_running())
