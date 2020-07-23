@@ -72,13 +72,6 @@ Vector3d randomly_rotated(const Vector3d &vector) {
       .normalized();
 }
 
-Vector3d random_interpolated_vector(const Vector3d &from, const Vector3d &to) {
-  static thread_local std::uniform_real_distribution<> t(0, 1);
-  return Vector3d(std::lerp(from.x(), to.x(), t(random_engine)),
-                  std::lerp(from.y(), to.y(), t(random_engine)),
-                  std::lerp(from.z(), to.z(), t(random_engine)));
-}
-
 double random_coefficient() {
   static thread_local std::uniform_real_distribution<> t(0, 1);
   return t(random_engine);
@@ -310,97 +303,8 @@ struct PixelValue {
 
 struct CameraPixel {
   const Vector2i coord;
-  const Vector3d origin;
-  const Vector3d top_left;
-  const Vector3d bottom_right;
   PixelValue value;
   bool empty = true;
-
-  void render(SceneRef scene) {
-    const int iterations = std::pow(2, 18);
-    empty = false;
-    for (int i = 0; i < iterations; i++)
-      value.add(trace(scene));
-    value.average(iterations);
-  }
-
-  [[nodiscard]] Ray emit() const {
-    return {
-        .origin = origin,
-        .direction =
-            random_interpolated_vector(top_left, bottom_right).normalized()};
-  };
-
-  static std::pair<double, const Object *>
-  closest_intersecting_object(SceneRef scene, const Object *prev_object,
-                              const Ray &ray) {
-    double closest_distance = std::numeric_limits<double>::infinity();
-    const Object *closest_object = nullptr;
-    for (const auto &object : scene) {
-      if (object.get() == prev_object)
-        continue;
-      const double distance = object->shape->intersection_distance(ray);
-      if (distance > 0 && distance <= closest_distance) {
-        closest_distance = distance;
-        closest_object = object.get();
-      }
-    }
-    return std::make_pair(closest_distance, closest_object);
-  }
-
-  [[nodiscard]] PixelValue trace(SceneRef scene) const {
-    Ray ray = emit();
-    RayTermination result{.value = -1};
-
-    const Object *prev_object = nullptr;
-    constexpr int max_bounces = 16;
-    for (int bounce = 0; bounce < max_bounces; bounce++) {
-      auto [distance, object] =
-          closest_intersecting_object(scene, prev_object, ray);
-
-      if (object == nullptr) {
-        log_message((boost::format("Nothing hit") % distance).str());
-        break;
-      }
-
-      prev_object = object;
-
-      const Vector3d point = ray.advance(distance);
-      const Vector3d normal = object->shape->normal_at(point);
-      const RayIntersection this_intersection =
-          object->surface->intersect_at(point, normal, ray.direction);
-
-      if (const auto *termination =
-              std::get_if<RayTermination>(&this_intersection)) {
-        result = *termination;
-        break;
-      }
-      if (const auto *const bounced_ray =
-              std::get_if<Ray>(&this_intersection)) {
-        ray = *bounced_ray;
-      }
-      if (bounce == max_bounces - 1)
-        log_message(
-            (boost::format("Max bounces reached, last distance: %e") % distance)
-                .str());
-    }
-
-    PixelValue value{};
-
-    if (result.value >= 0)
-      value.r = value.g = value.b = result.value;
-    else {
-      value.r = result.value;
-      value.g = value.b = 0;
-    }
-
-    return value;
-  }
-
-  void log_message(const std::string &message) const {
-    std::cout << boost::str(boost::format("%4dx%4d: %s\n") % coord.x() %
-                            coord.y() % message);
-  }
 };
 
 using Pixels = std::vector<CameraPixel>;
@@ -409,25 +313,9 @@ class Camera {
 private:
   [[nodiscard]] CameraPixel _index_to_pixel(const unsigned int index) const {
     const Vector2i coord(index % image_size.x(), index / image_size.x());
-    const Vector2d pixel_pos_top_left(
-        (coord.x() + 0.0) / image_size.x() - 0.5,
-        ((coord.y() + 0.0) / image_size.y() - 0.5) / aspect_ratio);
-    const Vector2d pixel_pos_bottom_right(
-        (coord.x() + 1.0) / image_size.x() - 0.5,
-        ((coord.y() + 1.0) / image_size.y() - 0.5) / aspect_ratio);
-
-    Vector3d ray_direction_top_left =
-        (direction + camera_right * pixel_pos_top_left.x() -
-         camera_up * pixel_pos_bottom_right.y())
-            .normalized();
-    Vector3d ray_direction_bottom_right =
-        (direction + camera_right * pixel_pos_bottom_right.x() -
-         camera_up * pixel_pos_bottom_right.y())
-            .normalized();
-    return {.coord = coord,
-            .origin = pos,
-            .top_left = ray_direction_top_left,
-            .bottom_right = ray_direction_bottom_right};
+    return {
+        .coord = coord,
+    };
   }
 
   [[nodiscard]] Pixels _allocate_pixels() const {
@@ -466,13 +354,112 @@ public:
 class Caster {
   const std::span<CameraPixel> _pixel_span;
   SceneRef _scene;
+  const Camera &_camera;
 
   std::thread _thread;
   std::atomic<bool> _is_rendering = false;
 
+  [[nodiscard]] static Ray _emit(const Camera &camera,
+                                 const CameraPixel &pixel) {
+    const Vector2d pixel_pos(
+        (pixel.coord.x() + random_coefficient()) / camera.image_size.x() - 0.5,
+        ((pixel.coord.y() + random_coefficient()) / camera.image_size.y() -
+         0.5) /
+            camera.aspect_ratio);
+
+    Vector3d direction =
+        (camera.direction + camera.camera_right * pixel_pos.x() -
+         camera.camera_up * pixel_pos.y())
+            .normalized();
+    return {.origin = camera.pos, .direction = direction};
+  };
+
+  static std::pair<double, const Object *>
+  _closest_intersecting_object(SceneRef scene, const Object *prev_object,
+                               const Ray &ray) {
+    double closest_distance = std::numeric_limits<double>::infinity();
+    const Object *closest_object = nullptr;
+    for (const auto &object : scene) {
+      if (object.get() == prev_object)
+        continue;
+      const double distance = object->shape->intersection_distance(ray);
+      if (distance > 0 && distance <= closest_distance) {
+        closest_distance = distance;
+        closest_object = object.get();
+      }
+    }
+    return std::make_pair(closest_distance, closest_object);
+  }
+
+  [[nodiscard]] static PixelValue _trace(SceneRef scene, const Camera &camera,
+                                         const CameraPixel &pixel) {
+    Ray ray = _emit(camera, pixel);
+    RayTermination result{.value = -1};
+
+    const Object *prev_object = nullptr;
+    constexpr int max_bounces = 16;
+    for (int bounce = 0; bounce < max_bounces; bounce++) {
+      auto [distance, object] =
+          _closest_intersecting_object(scene, prev_object, ray);
+
+      if (object == nullptr) {
+        _log_message(pixel, (boost::format("Nothing hit") % distance).str());
+        break;
+      }
+
+      prev_object = object;
+
+      const Vector3d point = ray.advance(distance);
+      const Vector3d normal = object->shape->normal_at(point);
+      const RayIntersection this_intersection =
+          object->surface->intersect_at(point, normal, ray.direction);
+
+      if (const auto *termination =
+              std::get_if<RayTermination>(&this_intersection)) {
+        result = *termination;
+        break;
+      }
+      if (const auto *const bounced_ray =
+              std::get_if<Ray>(&this_intersection)) {
+        ray = *bounced_ray;
+      }
+      if (bounce == max_bounces - 1)
+        _log_message(
+            pixel,
+            (boost::format("Max bounces reached, last distance: %e") % distance)
+                .str());
+    }
+
+    PixelValue value{};
+
+    if (result.value >= 0)
+      value.r = value.g = value.b = result.value;
+    else {
+      value.r = result.value;
+      value.g = value.b = 0;
+    }
+
+    return value;
+  }
+
+  static void _log_message(const CameraPixel &pixel,
+                           const std::string &message) {
+    std::cout << boost::str(boost::format("%4dx%4d: %s\n") % pixel.coord.x() %
+                            pixel.coord.y() % message);
+  }
+
+  static void _render_pixel(SceneRef scene, const Camera &camera,
+                            CameraPixel &pixel) {
+    const int iterations = std::pow(2, 12);
+    pixel.empty = false;
+    for (int i = 0; i < iterations; i++)
+      pixel.value.add(_trace(scene, camera, pixel));
+    pixel.value.average(iterations);
+  }
+
   void _render() {
     for (auto &pixel : _pixel_span) {
-      pixel.render(_scene);
+      _render_pixel(_scene, _camera, pixel);
       if (!_is_rendering)
         break;
     }
@@ -489,8 +476,9 @@ public:
   Caster &operator=(Caster &&) = delete;
   ~Caster() = default;
 
-  Caster(const std::span<CameraPixel> pixel_span, SceneRef scene)
-      : _pixel_span(pixel_span), _scene(scene) {}
+  Caster(const std::span<CameraPixel> pixel_span, SceneRef scene,
+         const Camera &camera)
+      : _pixel_span(pixel_span), _scene(scene), _camera(camera) {}
 
   void start_rendering() {
     _is_rendering = true;
@@ -646,10 +634,11 @@ int main(int /*argc*/, char * /*args*/[]) {
   // Camera camera(Vector3d(4, 2, 1.5), Vector3d(0, 0, 0.5),
   //               Vector2i(screen_dimensions.width, screen_dimensions.height));
 
+  display.start_measure();
   Camera camera(Vector3d(2, 3, 4), Vector3d(0, 0, 0.5),
                 Vector2i(screen_dimensions.width, screen_dimensions.height));
 
-  std::cout << boost::format("Allocated camera\n");
+  display.complete_measure("Allocated camera in ");
   Scene scene;
 
   scene.push_back(std::make_unique<Object>(
@@ -694,7 +683,7 @@ int main(int /*argc*/, char * /*args*/[]) {
                            (i == thread_count - 1 ? pixels_per_caster.rem : 0);
     auto caster = std::make_unique<Caster>(
         std::span<CameraPixel>(camera.pixels).subspan(start, count),
-        std::cref(scene));
+        std::cref(scene), std::cref(camera));
     caster->start_rendering();
     casters.push_back(std::move(caster));
   }
