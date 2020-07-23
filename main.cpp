@@ -272,39 +272,34 @@ using Scene = std::vector<std::unique_ptr<Object>>;
 using SceneRef = const std::vector<std::unique_ptr<Object>> &;
 
 struct PixelValue {
-  double r;
-  double g;
-  double b;
+  double v = 0;
+  unsigned long iterations = 0;
 
   void add(PixelValue const &other) {
-    r += other.r;
-    g += other.g;
-    b += other.b;
+    v += other.v;
+    iterations++;
   }
 
-  void average(int count) {
-    r /= count;
-    g /= count;
-    b /= count;
-  }
+  [[nodiscard]] bool empty() const { return iterations == 0U; }
+
+  [[nodiscard]] double average_v() const { return v / (double)iterations; }
 
   [[nodiscard]] int int_r() const {
-    return std::min(255, static_cast<int>(255.0 * r));
+    return std::min(255, static_cast<int>(255.0 * average_v()));
   }
 
   [[nodiscard]] int int_g() const {
-    return std::min(255, static_cast<int>(255.0 * g));
+    return std::min(255, static_cast<int>(255.0 * average_v()));
   }
 
   [[nodiscard]] int int_b() const {
-    return std::min(255, static_cast<int>(255.0 * b));
+    return std::min(255, static_cast<int>(255.0 * average_v()));
   }
 };
 
 struct CameraPixel {
   const Vector2i coord;
   PixelValue value;
-  bool empty = true;
 };
 
 using Pixels = std::vector<CameraPixel>;
@@ -432,12 +427,11 @@ class Caster {
 
     PixelValue value{};
 
-    if (result.value >= 0)
-      value.r = value.g = value.b = result.value;
-    else {
-      value.r = result.value;
-      value.g = value.b = 0;
-    }
+    value.v = result.value;
+    if (result.value < 0)
+      _log_message(
+          pixel,
+          (boost::format("Negative pixel value: %e") % result.value).str());
 
     return value;
   }
@@ -451,10 +445,8 @@ class Caster {
   static void _render_pixel(SceneRef scene, const Camera &camera,
                             CameraPixel &pixel) {
     const int iterations = std::pow(2, 12);
-    pixel.empty = false;
     for (int i = 0; i < iterations; i++)
       pixel.value.add(_trace(scene, camera, pixel));
-    pixel.value.average(iterations);
   }
 
   void _render() {
@@ -564,7 +556,7 @@ public:
       if (!is_running())
         break;
 
-      if (pixel.empty)
+      if (pixel.value.empty())
         continue;
       SDL_SetRenderDrawColor(_renderer, pixel.value.int_r(),
                              pixel.value.int_g(), pixel.value.int_b(),

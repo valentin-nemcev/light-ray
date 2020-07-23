@@ -3,6 +3,9 @@
 # Exit on error
 set -e
 
+
+TARGET=main
+
 for i in "$@"
 do
 case $i in
@@ -11,6 +14,9 @@ case $i in
     ;;
     --debug)
     DEBUG=YES
+    ;;
+    --target=*)
+    TARGET="${i#*=}"
     ;;
     *)
             # unknown option
@@ -33,11 +39,11 @@ then
   mv compile_commands.json ..
 fi
 
-cmake --build .
+cmake --build . --target $TARGET
 
 if [ ! -z $DEBUG ]
 then
-$PREFIX/bin/lldb -o run ./main
+$PREFIX/bin/lldb -o run ./$TARGET
 else
-./main
+./$TARGET
 fi

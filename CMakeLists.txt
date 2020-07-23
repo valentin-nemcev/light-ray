@@ -24,6 +24,8 @@ find_package(range-v3 CONFIG REQUIRED)
 
 add_executable(main main.cpp)
 
+add_executable(test test.cpp)
+
 target_link_libraries(main SDL2::SDL2main SDL2::SDL2 Boost::boost Eigen3::Eigen range-v3::range-v3)
 
 set(CMAKE_CXX_FLAGS "-O3 -std=c++20 -Wall -Wextra -Wpedantic -fdiagnostics-show-template-tree")
