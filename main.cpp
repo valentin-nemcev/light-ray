@@ -1,19 +1,10 @@
 #include <Eigen/Dense>
 #include <Eigen/src/Core/Matrix.h>
 #include <boost/format.hpp>
-#include <chrono>
-#include <cmath>
 #include <csignal>
 #include <iostream>
-#include <memory>
-#include <optional>
 #include <ostream>
-#include <random>
-#include <span>
-#include <stdexcept>
 #include <thread>
-#include <utility>
-#include <variant>
 
 #include "display.hpp"
 #include "renderer.hpp"
@@ -29,7 +20,7 @@ struct PixelChunk {
   int end_index;
 };
 
-class Caster {
+class Worker {
   Pixels &_pixels;
   PixelChunk _pixel_chunk;
   SceneRef _scene;
@@ -38,102 +29,12 @@ class Caster {
   std::thread _thread;
   std::atomic<bool> _is_rendering = false;
 
-  [[nodiscard]] static Ray _emit(const Camera &camera, const int pixel_index) {
-    const Vector2i coord =
-        CameraPixel::index_to_coord(pixel_index, camera.image_size.x());
-    const Vector2d pixel_pos(
-        (coord.x() + random_coefficient()) / camera.image_size.x() - 0.5,
-        ((coord.y() + random_coefficient()) / camera.image_size.y() - 0.5) /
-            camera.aspect_ratio);
-
-    Vector3d direction =
-        (camera.direction + camera.camera_right * pixel_pos.x() -
-         camera.camera_up * pixel_pos.y())
-            .normalized();
-    return {.origin = camera.pos, .direction = direction};
-  };
-
-  static std::pair<double, const Object *>
-  _closest_intersecting_object(SceneRef scene, const Object *prev_object,
-                               const Ray &ray) {
-    double closest_distance = std::numeric_limits<double>::infinity();
-    const Object *closest_object = nullptr;
-    for (const auto &object : scene) {
-      if (object.get() == prev_object)
-        continue;
-      const double distance = object->shape->intersection_distance(ray);
-      if (distance > 0 && distance <= closest_distance) {
-        closest_distance = distance;
-        closest_object = object.get();
-      }
-    }
-    return std::make_pair(closest_distance, closest_object);
-  }
-
-  [[nodiscard]] static double _trace(SceneRef scene, const Camera &camera,
-                                     const int pixel_index) {
-    Ray ray = _emit(camera, pixel_index);
-    RayTermination result{.value = -1};
-
-    const Object *prev_object = nullptr;
-    constexpr int max_bounces = 16;
-    for (int bounce = 0; bounce < max_bounces; bounce++) {
-      auto [distance, object] =
-          _closest_intersecting_object(scene, prev_object, ray);
-
-      if (object == nullptr) {
-        _log_message(pixel_index,
-                     (boost::format("Nothing hit") % distance).str());
-        break;
-      }
-
-      prev_object = object;
-
-      const Vector3d point = ray.advance(distance);
-      const Vector3d normal = object->shape->normal_at(point);
-      const RayIntersection this_intersection =
-          object->surface->intersect_at(point, normal, ray.direction);
-
-      if (const auto *termination =
-              std::get_if<RayTermination>(&this_intersection)) {
-        result = *termination;
-        break;
-      }
-      if (const auto *const bounced_ray =
-              std::get_if<Ray>(&this_intersection)) {
-        ray = *bounced_ray;
-      }
-      if (bounce == max_bounces - 1)
-        _log_message(
-            pixel_index,
-            (boost::format("Max bounces reached, last distance: %e") % distance)
-                .str());
-    }
-
-    if (result.value < 0)
-      _log_message(
-          pixel_index,
-          (boost::format("Negative pixel value: %e") % result.value).str());
-
-    return result.value;
-  }
-
-  static void _log_message(const int pixel_index, const std::string &message) {
-    std::cout << boost::str(boost::format("%8d: %s\n") % pixel_index % message);
-  }
-
-  static void _render_pixel(SceneRef scene, const Camera &camera,
-                            Pixels &pixels, const int pixel_index) {
-    const int iterations = std::pow(2, 12);
-    auto &pixel = pixels[pixel_index];
-    for (int i = 0; i < iterations; i++)
-      pixel.add(_trace(scene, camera, pixel_index));
-  }
-
   void _render() {
     for (int pixel_index = _pixel_chunk.begin_index;
          pixel_index < _pixel_chunk.end_index; pixel_index++) {
-      _render_pixel(_scene, _camera, _pixels, pixel_index);
+
+      auto &pixel = _pixels[pixel_index];
+      Renderer::render_pixel(_scene, _camera, pixel, pixel_index);
       if (!_is_rendering)
         break;
     }
@@ -143,21 +44,21 @@ class Caster {
 public:
   [[nodiscard]] bool is_rendering() const { return _is_rendering; }
 
-  Caster() = delete;
-  Caster(const Caster &) = delete;
-  Caster(Caster &&) = delete;
-  Caster &operator=(const Caster &) = delete;
-  Caster &operator=(Caster &&) = delete;
-  ~Caster() = default;
+  Worker() = delete;
+  Worker(const Worker &) = delete;
+  Worker(Worker &&) = delete;
+  Worker &operator=(const Worker &) = delete;
+  Worker &operator=(Worker &&) = delete;
+  ~Worker() = default;
 
-  Caster(Pixels &pixels, PixelChunk pixel_chunk, SceneRef scene,
+  Worker(Pixels &pixels, PixelChunk pixel_chunk, SceneRef scene,
          const Camera &camera)
       : _pixels(pixels), _pixel_chunk(pixel_chunk), _scene(scene),
         _camera(camera) {}
 
   void start_rendering() {
     _is_rendering = true;
-    _thread = std::thread(&Caster::_render, this);
+    _thread = std::thread(&Worker::_render, this);
   }
 
   void stop_rendering() {
@@ -215,36 +116,36 @@ int main(int /*argc*/, char * /*args*/[]) {
   display.start_measure();
 
   const auto thread_count = std::thread::hardware_concurrency();
-  const auto pixels_per_caster =
+  const auto pixels_per_worker =
       std::div(static_cast<int>(camera.pixels.size()), thread_count);
 
-  std::vector<std::unique_ptr<Caster>> casters;
-  casters.reserve(thread_count);
+  std::vector<std::unique_ptr<Worker>> workers;
+  workers.reserve(thread_count);
 
   for (unsigned i = 0; i < thread_count; i++) {
-    const unsigned start = pixels_per_caster.quot * i;
-    const unsigned count = pixels_per_caster.quot +
-                           (i == thread_count - 1 ? pixels_per_caster.rem : 0);
+    const unsigned start = pixels_per_worker.quot * i;
+    const unsigned count = pixels_per_worker.quot +
+                           (i == thread_count - 1 ? pixels_per_worker.rem : 0);
     PixelChunk chunk = {.begin_index = static_cast<int>(start),
                         .end_index = static_cast<int>(start + count)};
-    auto caster = std::make_unique<Caster>(std::ref(camera.pixels), chunk,
+    auto worker = std::make_unique<Worker>(std::ref(camera.pixels), chunk,
                                            std::cref(scene), std::cref(camera));
-    caster->start_rendering();
-    casters.push_back(std::move(caster));
+    worker->start_rendering();
+    workers.push_back(std::move(worker));
   }
 
   while (display.is_running()) {
     bool is_rendering = false;
-    for (auto &caster : casters)
-      is_rendering = is_rendering || caster->is_rendering();
+    for (auto &worker : workers)
+      is_rendering = is_rendering || worker->is_rendering();
     display.draw_pixels(camera.pixels);
     display.update();
     if (!is_rendering)
       break;
   }
 
-  for (auto &caster : casters)
-    caster->stop_rendering();
+  for (auto &worker : workers)
+    worker->stop_rendering();
   display.complete_measure("Rendered in ");
 
   while (display.is_running())

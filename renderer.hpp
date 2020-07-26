@@ -2,6 +2,9 @@
 
 #include <Eigen/Dense>
 #include <Eigen/src/Core/Matrix.h>
+#include <boost/format.hpp>
+#include <iostream>
+#include <ostream>
 #include <random>
 #include <variant>
 
@@ -314,3 +317,97 @@ public:
         pixels(_allocate_pixels()) {}
 };
 
+class Renderer {
+
+  [[nodiscard]] static Ray _emit(const Camera &camera, const int pixel_index) {
+    const Vector2i coord =
+        CameraPixel::index_to_coord(pixel_index, camera.image_size.x());
+    const Vector2d pixel_pos(
+        (coord.x() + random_coefficient()) / camera.image_size.x() - 0.5,
+        ((coord.y() + random_coefficient()) / camera.image_size.y() - 0.5) /
+            camera.aspect_ratio);
+
+    Vector3d direction =
+        (camera.direction + camera.camera_right * pixel_pos.x() -
+         camera.camera_up * pixel_pos.y())
+            .normalized();
+    return {.origin = camera.pos, .direction = direction};
+  };
+
+  static std::pair<double, const Object *>
+  _closest_intersecting_object(SceneRef scene, const Object *prev_object,
+                               const Ray &ray) {
+    double closest_distance = std::numeric_limits<double>::infinity();
+    const Object *closest_object = nullptr;
+    for (const auto &object : scene) {
+      if (object.get() == prev_object)
+        continue;
+      const double distance = object->shape->intersection_distance(ray);
+      if (distance > 0 && distance <= closest_distance) {
+        closest_distance = distance;
+        closest_object = object.get();
+      }
+    }
+    return std::make_pair(closest_distance, closest_object);
+  }
+
+  [[nodiscard]] static double _trace(SceneRef scene, const Camera &camera,
+                                     const int pixel_index) {
+    Ray ray = _emit(camera, pixel_index);
+    RayTermination result{.value = -1};
+
+    const Object *prev_object = nullptr;
+    constexpr int max_bounces = 16;
+    for (int bounce = 0; bounce < max_bounces; bounce++) {
+      auto [distance, object] =
+          _closest_intersecting_object(scene, prev_object, ray);
+
+      if (object == nullptr) {
+        _log_message(pixel_index,
+                     (boost::format("Nothing hit") % distance).str());
+        break;
+      }
+
+      prev_object = object;
+
+      const Vector3d point = ray.advance(distance);
+      const Vector3d normal = object->shape->normal_at(point);
+      const RayIntersection this_intersection =
+          object->surface->intersect_at(point, normal, ray.direction);
+
+      if (const auto *termination =
+              std::get_if<RayTermination>(&this_intersection)) {
+        result = *termination;
+        break;
+      }
+      if (const auto *const bounced_ray =
+              std::get_if<Ray>(&this_intersection)) {
+        ray = *bounced_ray;
+      }
+      if (bounce == max_bounces - 1)
+        _log_message(
+            pixel_index,
+            (boost::format("Max bounces reached, last distance: %e") % distance)
+                .str());
+    }
+
+    if (result.value < 0)
+      _log_message(
+          pixel_index,
+          (boost::format("Negative pixel value: %e") % result.value).str());
+
+    return result.value;
+  }
+
+  static void _log_message(const int pixel_index, const std::string &message) {
+    std::cout << boost::str(boost::format("%8d: %s\n") % pixel_index % message);
+  }
+
+public:
+  static void render_pixel(SceneRef scene, const Camera &camera,
+                           CameraPixel &pixel, const int pixel_index) {
+    const int iterations = std::pow(2, 12);
+    for (int i = 0; i < iterations; i++)
+      pixel.add(_trace(scene, camera, pixel_index));
+  }
+};
