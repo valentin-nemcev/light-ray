@@ -271,12 +271,12 @@ public:
 using Scene = std::vector<std::unique_ptr<Object>>;
 using SceneRef = const std::vector<std::unique_ptr<Object>> &;
 
-struct PixelValue {
+struct CameraPixel {
   double v = 0;
   unsigned long iterations = 0;
 
-  void add(PixelValue const &other) {
-    v += other.v;
+  void add(double value) {
+    v += value;
     iterations++;
   }
 
@@ -295,31 +295,19 @@ struct PixelValue {
   [[nodiscard]] int int_b() const {
     return std::min(255, static_cast<int>(255.0 * average_v()));
   }
-};
 
-struct CameraPixel {
-  const Vector2i coord;
-  PixelValue value;
+  static Vector2i index_to_coord(const int index, const int width) {
+    return Vector2i(index % width, index / width);
+  }
 };
 
 using Pixels = std::vector<CameraPixel>;
 
 class Camera {
 private:
-  [[nodiscard]] CameraPixel _index_to_pixel(const unsigned int index) const {
-    const Vector2i coord(index % image_size.x(), index / image_size.x());
-    return {
-        .coord = coord,
-    };
-  }
-
   [[nodiscard]] Pixels _allocate_pixels() const {
-    Pixels pixels;
     const Vector2i::Scalar pixel_count = image_size.x() * image_size.y();
-    pixels.reserve(pixel_count);
-    for (int i = 0; i < pixel_count; i++) {
-      pixels.push_back(_index_to_pixel(i));
-    }
+    Pixels pixels(pixel_count);
     return pixels;
   }
 
@@ -346,20 +334,26 @@ public:
         pixels(_allocate_pixels()) {}
 };
 
+struct PixelChunk {
+  int begin_index;
+  int end_index;
+};
+
 class Caster {
-  const std::span<CameraPixel> _pixel_span;
+  Pixels &_pixels;
+  PixelChunk _pixel_chunk;
   SceneRef _scene;
   const Camera &_camera;
 
   std::thread _thread;
   std::atomic<bool> _is_rendering = false;
 
-  [[nodiscard]] static Ray _emit(const Camera &camera,
-                                 const CameraPixel &pixel) {
+  [[nodiscard]] static Ray _emit(const Camera &camera, const int pixel_index) {
+    const Vector2i coord =
+        CameraPixel::index_to_coord(pixel_index, camera.image_size.x());
     const Vector2d pixel_pos(
-        (pixel.coord.x() + random_coefficient()) / camera.image_size.x() - 0.5,
-        ((pixel.coord.y() + random_coefficient()) / camera.image_size.y() -
-         0.5) /
+        (coord.x() + random_coefficient()) / camera.image_size.x() - 0.5,
+        ((coord.y() + random_coefficient()) / camera.image_size.y() - 0.5) /
             camera.aspect_ratio);
 
     Vector3d direction =
@@ -386,9 +380,9 @@ class Caster {
     return std::make_pair(closest_distance, closest_object);
   }
 
-  [[nodiscard]] static PixelValue _trace(SceneRef scene, const Camera &camera,
-                                         const CameraPixel &pixel) {
-    Ray ray = _emit(camera, pixel);
+  [[nodiscard]] static double _trace(SceneRef scene, const Camera &camera,
+                                     const int pixel_index) {
+    Ray ray = _emit(camera, pixel_index);
     RayTermination result{.value = -1};
 
     const Object *prev_object = nullptr;
@@ -398,7 +392,8 @@ class Caster {
           _closest_intersecting_object(scene, prev_object, ray);
 
       if (object == nullptr) {
-        _log_message(pixel, (boost::format("Nothing hit") % distance).str());
+        _log_message(pixel_index,
+                     (boost::format("Nothing hit") % distance).str());
         break;
       }
 
@@ -420,38 +415,35 @@ class Caster {
       }
       if (bounce == max_bounces - 1)
         _log_message(
-            pixel,
+            pixel_index,
             (boost::format("Max bounces reached, last distance: %e") % distance)
                 .str());
     }
 
-    PixelValue value{};
-
-    value.v = result.value;
     if (result.value < 0)
       _log_message(
-          pixel,
+          pixel_index,
           (boost::format("Negative pixel value: %e") % result.value).str());
 
-    return value;
+    return result.value;
   }
 
-  static void _log_message(const CameraPixel &pixel,
-                           const std::string &message) {
-    std::cout << boost::str(boost::format("%4dx%4d: %s\n") % pixel.coord.x() %
-                            pixel.coord.y() % message);
+  static void _log_message(const int pixel_index, const std::string &message) {
+    std::cout << boost::str(boost::format("%8d: %s\n") % pixel_index % message);
   }
 
   static void _render_pixel(SceneRef scene, const Camera &camera,
-                            CameraPixel &pixel) {
+                            Pixels &pixels, const int pixel_index) {
     const int iterations = std::pow(2, 12);
+    auto &pixel = pixels[pixel_index];
     for (int i = 0; i < iterations; i++)
-      pixel.value.add(_trace(scene, camera, pixel));
+      pixel.add(_trace(scene, camera, pixel_index));
   }
 
   void _render() {
-    for (auto &pixel : _pixel_span) {
-      _render_pixel(_scene, _camera, pixel);
+    for (int pixel_index = _pixel_chunk.begin_index;
+         pixel_index < _pixel_chunk.end_index; pixel_index++) {
+      _render_pixel(_scene, _camera, _pixels, pixel_index);
       if (!_is_rendering)
         break;
     }
@@ -468,9 +460,10 @@ public:
   Caster &operator=(Caster &&) = delete;
   ~Caster() = default;
 
-  Caster(const std::span<CameraPixel> pixel_span, SceneRef scene,
+  Caster(Pixels &pixels, PixelChunk pixel_chunk, SceneRef scene,
          const Camera &camera)
-      : _pixel_span(pixel_span), _scene(scene), _camera(camera) {}
+      : _pixels(pixels), _pixel_chunk(pixel_chunk), _scene(scene),
+        _camera(camera) {}
 
   void start_rendering() {
     _is_rendering = true;
@@ -552,17 +545,25 @@ public:
 
   void draw_pixels(Pixels const &pixels) {
     draw_background();
-    for (const auto &pixel : pixels) {
+
+    int width = 0;
+    int height = 0;
+    SDL_GetRendererOutputSize(_renderer, &width, &height);
+
+    for (auto pixel = pixels.begin(); pixel != pixels.end(); ++pixel) {
       if (!is_running())
         break;
 
-      if (pixel.value.empty())
+      if (pixel->empty())
         continue;
-      SDL_SetRenderDrawColor(_renderer, pixel.value.int_r(),
-                             pixel.value.int_g(), pixel.value.int_b(),
-                             SDL_ALPHA_OPAQUE);
-      SDL_RenderDrawPoint(_renderer, static_cast<int>(pixel.coord.x()),
-                          static_cast<int>(pixel.coord.y()));
+
+      int index = std::distance(pixels.begin(), pixel);
+
+      const Vector2i coord = CameraPixel::index_to_coord(index, width);
+      SDL_SetRenderDrawColor(_renderer, pixel->int_r(), pixel->int_g(),
+                             pixel->int_b(), SDL_ALPHA_OPAQUE);
+      SDL_RenderDrawPoint(_renderer, static_cast<int>(coord.x()),
+                          static_cast<int>(coord.y()));
     }
   }
 
@@ -673,9 +674,10 @@ int main(int /*argc*/, char * /*args*/[]) {
     const unsigned start = pixels_per_caster.quot * i;
     const unsigned count = pixels_per_caster.quot +
                            (i == thread_count - 1 ? pixels_per_caster.rem : 0);
-    auto caster = std::make_unique<Caster>(
-        std::span<CameraPixel>(camera.pixels).subspan(start, count),
-        std::cref(scene), std::cref(camera));
+    PixelChunk chunk = {.begin_index = static_cast<int>(start),
+                        .end_index = static_cast<int>(start + count)};
+    auto caster = std::make_unique<Caster>(std::ref(camera.pixels), chunk,
+                                           std::cref(scene), std::cref(camera));
     caster->start_rendering();
     casters.push_back(std::move(caster));
   }
