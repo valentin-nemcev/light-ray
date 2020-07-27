@@ -255,28 +255,32 @@ using Scene = std::vector<std::unique_ptr<Object>>;
 using SceneRef = const std::vector<std::unique_ptr<Object>> &;
 
 struct CameraPixel {
-  double v = 0;
-  unsigned long iterations = 0;
+private:
+  double _value = 0;
+  unsigned long _iterations = 0;
 
-  void add(double value) {
-    v += value;
-    iterations++;
+  [[nodiscard]] double _average_v() const {
+    return _value / (double)_iterations;
   }
 
-  [[nodiscard]] bool empty() const { return iterations == 0U; }
+public:
+  [[nodiscard]] bool empty() const { return _iterations == 0U; }
 
-  [[nodiscard]] double average_v() const { return v / (double)iterations; }
+  void add(double value) {
+    _value += value;
+    _iterations++;
+  }
 
   [[nodiscard]] int int_r() const {
-    return std::min(255, static_cast<int>(255.0 * average_v()));
+    return std::min(255, static_cast<int>(255.0 * _average_v()));
   }
 
   [[nodiscard]] int int_g() const {
-    return std::min(255, static_cast<int>(255.0 * average_v()));
+    return std::min(255, static_cast<int>(255.0 * _average_v()));
   }
 
   [[nodiscard]] int int_b() const {
-    return std::min(255, static_cast<int>(255.0 * average_v()));
+    return std::min(255, static_cast<int>(255.0 * _average_v()));
   }
 
   static Vector2i index_to_coord(const int index, const int width) {
