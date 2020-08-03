@@ -172,7 +172,7 @@ int main(int /*argc*/, char * /*args*/[]) {
                                    25, 0.25)));
 
   std::cout << boost::format("Allocated scene\n");
-  display.draw_background();
+  display.draw_pixels(camera.pixels);
   display.update();
 
   std::cout << boost::format("Window ready\n");
