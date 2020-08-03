@@ -56,8 +56,12 @@ public:
     }
   }
 
-  void set_rgba(int x, int y, Uint8 r, Uint8 g, Uint8 b, Uint8 a) {
+  void set_xy_rgba(int x, int y, Uint8 r, Uint8 g, Uint8 b, Uint8 a) {
     _texture_span[x + (y * _width)] = SDL_MapRGBA(_pixel_format, r, g, b, a);
+  }
+
+  void set_i_rgba(int i, Uint8 r, Uint8 g, Uint8 b, Uint8 a) {
+    _texture_span[i] = SDL_MapRGBA(_pixel_format, r, g, b, a);
   }
 };
 
@@ -71,6 +75,12 @@ class Display {
   std::chrono::time_point<std::chrono::system_clock> _measure_start_time;
 
   bool _is_running = true;
+
+  int _screen_pixel_width;
+  int _screen_pixel_height;
+  SDL_Rect _screen_rect{};
+
+  static constexpr int statusbar_display_height = 0;
 
 public:
   Display(const Display &) = delete;
@@ -89,7 +99,8 @@ public:
     _window = SDL_CreateWindow(
         "Light Ray", SDL_WINDOWPOS_UNDEFINED_DISPLAY(display_index),
         SDL_WINDOWPOS_UNDEFINED_DISPLAY(display_index), window_display_width,
-        window_display_height, SDL_WINDOW_SHOWN | SDL_WINDOW_ALLOW_HIGHDPI);
+        window_display_height + statusbar_display_height,
+        SDL_WINDOW_SHOWN | SDL_WINDOW_ALLOW_HIGHDPI);
     if (_window == nullptr)
       sdl_error("Could not create window");
 
@@ -102,18 +113,28 @@ public:
     if (_pixel_format == nullptr)
       sdl_error("Could not allocate pixel format");
 
-    auto [width, height] = screen_dimensions();
-    _screen_texture =
-        SDL_CreateTexture(_renderer, SDL_GetWindowPixelFormat(_window),
-                          SDL_TEXTUREACCESS_STREAMING, width, height);
+    int window_pixel_width = 0;
+    int window_pixel_height = 0;
+    SDL_GetRendererOutputSize(_renderer, &window_pixel_width,
+                              &window_pixel_height);
+    int display_scale = window_pixel_width / window_display_width;
+
+    _screen_pixel_width = window_display_width * display_scale;
+    _screen_pixel_height = window_display_height * display_scale;
+    _screen_rect = {
+        .x = 0, .y = 0, .w = _screen_pixel_width, .h = _screen_pixel_height};
+
+    _screen_texture = SDL_CreateTexture(
+        _renderer, SDL_GetWindowPixelFormat(_window),
+        SDL_TEXTUREACCESS_STREAMING, _screen_pixel_width, _screen_pixel_height);
     if (_screen_texture == nullptr)
       sdl_error("Could not create screen texture");
     if (SDL_SetTextureBlendMode(_screen_texture, SDL_BLENDMODE_BLEND) != 0)
       sdl_error("Could not set screen texture blend mode");
 
-    _background_texture =
-        SDL_CreateTexture(_renderer, SDL_GetWindowPixelFormat(_window),
-                          SDL_TEXTUREACCESS_TARGET, width, height);
+    _background_texture = SDL_CreateTexture(
+        _renderer, SDL_GetWindowPixelFormat(_window), SDL_TEXTUREACCESS_TARGET,
+        _screen_pixel_width, _screen_pixel_height);
     if (_background_texture == nullptr)
       sdl_error("Could not create background texture");
     fill_background(*_background_texture);
@@ -139,7 +160,11 @@ public:
     constexpr int square_size = 16;
     if (SDL_SetRenderTarget(_renderer, &texture) != 0)
       sdl_error("Could not set render target to texture");
-    auto [width, height] = screen_dimensions();
+
+    int width = 0;
+    int height = 0;
+    SDL_GetRendererOutputSize(_renderer, &width, &height);
+
     for (int x = 0; x < width / square_size; x++)
       for (int y = 0; y < height / square_size; y++) {
         if (x % 2 != y % 2)
@@ -157,11 +182,9 @@ public:
   }
 
   void draw_pixels(Pixels const &pixels) {
-    start_measure();
-    if (SDL_RenderCopy(_renderer, _background_texture, nullptr, nullptr) != 0)
+    if (SDL_RenderCopy(_renderer, _background_texture, nullptr,
+                       &_screen_rect) != 0)
       sdl_error("Could not copy background texture");
-
-    auto [width, height] = screen_dimensions();
 
     {
       TextureLock texture_lock(*_screen_texture);
@@ -172,20 +195,15 @@ public:
 
         int index = std::distance(pixels.begin(), pixel);
 
-        const Vector2i coord = CameraPixel::index_to_coord(index, width);
-
         if (pixel->empty())
-          texture_lock.set_rgba(coord.x(), coord.y(), 0, 0, 0,
-                                SDL_ALPHA_TRANSPARENT);
+          texture_lock.set_i_rgba(index, 0, 0, 0, SDL_ALPHA_TRANSPARENT);
         else
-          texture_lock.set_rgba(coord.x(), coord.y(), pixel->int_r(),
-                                pixel->int_g(), pixel->int_b(),
-                                SDL_ALPHA_OPAQUE);
+          texture_lock.set_i_rgba(index, pixel->int_r(), pixel->int_g(),
+                                  pixel->int_b(), SDL_ALPHA_OPAQUE);
       }
     }
-    if (SDL_RenderCopy(_renderer, _screen_texture, nullptr, nullptr) != 0)
+    if (SDL_RenderCopy(_renderer, _screen_texture, nullptr, &_screen_rect) != 0)
       sdl_error("Could not copy screen texture");
-    complete_measure("draw pixels: ");
   }
 
   struct ScreenDimensions {
