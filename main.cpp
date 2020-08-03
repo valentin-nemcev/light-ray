@@ -1,9 +1,11 @@
 #include <Eigen/Dense>
 #include <Eigen/src/Core/Matrix.h>
+#include <algorithm>
 #include <boost/format.hpp>
 #include <csignal>
 #include <iostream>
 #include <ostream>
+#include <random>
 #include <thread>
 
 #include "display.hpp"
@@ -15,14 +17,66 @@
 constexpr unsigned window_width = 640;
 constexpr unsigned window_height = 480;
 
+class Worker;
+
 struct PixelChunk {
-  int begin_index;
-  int end_index;
+  unsigned begin_index{};
+  unsigned end_index{};
+  const Worker *worker = nullptr;
+};
+
+class ChunkQueue {
+  std::vector<PixelChunk> _queue;
+  std::size_t _next_chunk_index = 0;
+  std::mutex _queue_mutex;
+
+  [[nodiscard]] static std::vector<PixelChunk>
+  _allocate_queue(const unsigned pixel_count, const unsigned chunk_count) {
+    std::vector<PixelChunk> queue;
+    const auto pixels_per_chunk = (pixel_count / chunk_count);
+    queue.reserve(chunk_count);
+    for (unsigned chunk = 0; chunk < chunk_count; chunk++) {
+      const unsigned begin_index = pixels_per_chunk * chunk;
+      const unsigned end_index = begin_index + pixels_per_chunk;
+      queue.push_back({.begin_index = begin_index, .end_index = end_index});
+    }
+    std::shuffle(queue.begin(), queue.end(), random_engine);
+    return queue;
+  }
+
+public:
+  ChunkQueue() = delete;
+  ChunkQueue(const ChunkQueue &) = delete;
+  ChunkQueue(ChunkQueue &&) = delete;
+  ChunkQueue &operator=(const ChunkQueue &) = delete;
+  ChunkQueue &operator=(ChunkQueue &&) = delete;
+  ~ChunkQueue() = default;
+
+  ChunkQueue(const unsigned pixel_count, const unsigned chunk_count)
+      : _queue(_allocate_queue(pixel_count, chunk_count)){};
+
+  PixelChunk &take_next_chunk(const Worker *worker) {
+    const std::lock_guard<std::mutex> lock(_queue_mutex);
+    for (std::size_t i = 0; i < _queue.size(); i++) {
+      PixelChunk &chunk = _queue[_next_chunk_index];
+      _next_chunk_index = (_next_chunk_index + 1) % _queue.size();
+      if (chunk.worker != nullptr)
+        continue;
+      chunk.worker = worker;
+      return chunk;
+    }
+    throw std::runtime_error("Render queue drained");
+  };
+
+  void return_chunk(PixelChunk &chunk) {
+    const std::lock_guard<std::mutex> lock(_queue_mutex);
+    chunk.worker = nullptr;
+  }
 };
 
 class Worker {
   Pixels &_pixels;
-  PixelChunk _pixel_chunk;
+  ChunkQueue &_queue;
   SceneRef _scene;
   const Camera &_camera;
 
@@ -30,12 +84,22 @@ class Worker {
   std::atomic<bool> _is_rendering = false;
 
   void _render() {
-    for (int pixel_index = _pixel_chunk.begin_index;
-         pixel_index < _pixel_chunk.end_index; pixel_index++) {
+    for (;;) {
+      PixelChunk &pixel_chunk = _queue.take_next_chunk(this);
+      unsigned iterations_done = 0;
+      for (unsigned pixel_index = pixel_chunk.begin_index;
+           pixel_index < pixel_chunk.end_index; pixel_index++) {
 
-      auto &pixel = _pixels[pixel_index];
-      Renderer::render_pixel(_scene, _camera, pixel, pixel_index);
+        auto &pixel = _pixels[pixel_index];
+        iterations_done +=
+            Renderer::render_pixel(_scene, _camera, pixel, pixel_index);
+        if (!_is_rendering)
+          break;
+      }
+      _queue.return_chunk(pixel_chunk);
       if (!_is_rendering)
+        break;
+      if (iterations_done == 0)
         break;
     }
     _is_rendering = false;
@@ -51,10 +115,9 @@ public:
   Worker &operator=(Worker &&) = delete;
   ~Worker() = default;
 
-  Worker(Pixels &pixels, PixelChunk pixel_chunk, SceneRef scene,
+  Worker(Pixels &pixels, ChunkQueue &queue, SceneRef scene,
          const Camera &camera)
-      : _pixels(pixels), _pixel_chunk(pixel_chunk), _scene(scene),
-        _camera(camera) {}
+      : _pixels(pixels), _queue(queue), _scene(scene), _camera(camera) {}
 
   void start_rendering() {
     _is_rendering = true;
@@ -116,20 +179,16 @@ int main(int /*argc*/, char * /*args*/[]) {
   display.start_measure();
 
   const auto thread_count = std::thread::hardware_concurrency();
-  const auto pixels_per_worker =
-      std::div(static_cast<int>(camera.pixels.size()), thread_count);
 
   std::vector<std::unique_ptr<Worker>> workers;
   workers.reserve(thread_count);
 
+  ChunkQueue queue(camera.pixels.size(), camera.image_size.y());
+
   for (unsigned i = 0; i < thread_count; i++) {
-    const unsigned start = pixels_per_worker.quot * i;
-    const unsigned count = pixels_per_worker.quot +
-                           (i == thread_count - 1 ? pixels_per_worker.rem : 0);
-    PixelChunk chunk = {.begin_index = static_cast<int>(start),
-                        .end_index = static_cast<int>(start + count)};
-    auto worker = std::make_unique<Worker>(std::ref(camera.pixels), chunk,
-                                           std::cref(scene), std::cref(camera));
+    auto worker =
+        std::make_unique<Worker>(std::ref(camera.pixels), std::ref(queue),
+                                 std::cref(scene), std::cref(camera));
     worker->start_rendering();
     workers.push_back(std::move(worker));
   }

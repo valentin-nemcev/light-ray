@@ -257,14 +257,15 @@ using SceneRef = const std::vector<std::unique_ptr<Object>> &;
 struct CameraPixel {
 private:
   double _value = 0;
-  unsigned long _iterations = 0;
+  unsigned _iterations = 0;
 
   [[nodiscard]] double _average_v() const {
     return _value / (double)_iterations;
   }
 
 public:
-  [[nodiscard]] bool empty() const { return _iterations == 0U; }
+  [[nodiscard]] bool empty() const { return _iterations == 0; }
+  [[nodiscard]] unsigned iterations() const { return _iterations; }
 
   void add(double value) {
     _value += value;
@@ -283,7 +284,7 @@ public:
     return std::min(255, static_cast<int>(255.0 * _average_v()));
   }
 
-  static Vector2i index_to_coord(const int index, const int width) {
+  static Vector2i index_to_coord(const unsigned index, const unsigned width) {
     return Vector2i(index % width, index / width);
   }
 };
@@ -323,7 +324,8 @@ public:
 
 class Renderer {
 
-  [[nodiscard]] static Ray _emit(const Camera &camera, const int pixel_index) {
+  [[nodiscard]] static Ray _emit(const Camera &camera,
+                                 const unsigned pixel_index) {
     const Vector2i coord =
         CameraPixel::index_to_coord(pixel_index, camera.image_size.x());
     const Vector2d pixel_pos(
@@ -356,7 +358,7 @@ class Renderer {
   }
 
   [[nodiscard]] static double _trace(SceneRef scene, const Camera &camera,
-                                     const int pixel_index) {
+                                     const unsigned pixel_index) {
     Ray ray = _emit(camera, pixel_index);
     RayTermination result{.value = -1};
 
@@ -403,15 +405,21 @@ class Renderer {
     return result.value;
   }
 
-  static void _log_message(const int pixel_index, const std::string &message) {
+  static void _log_message(const unsigned pixel_index,
+                           const std::string &message) {
     std::cout << boost::str(boost::format("%8d: %s\n") % pixel_index % message);
   }
 
 public:
-  static void render_pixel(SceneRef scene, const Camera &camera,
-                           CameraPixel &pixel, const int pixel_index) {
-    const int iterations = std::pow(2, 12);
-    for (int i = 0; i < iterations; i++)
+  static unsigned render_pixel(SceneRef scene, const Camera &camera,
+                               CameraPixel &pixel, const unsigned pixel_index) {
+    const unsigned target_iterations = std::pow(2, 12);
+    const unsigned chunk_target_iterations = 256;
+    unsigned i = 0;
+    for (i = 0; i <= chunk_target_iterations &&
+                pixel.iterations() <= target_iterations;
+         i++)
       pixel.add(_trace(scene, camera, pixel_index));
+    return i;
   }
 };
