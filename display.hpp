@@ -32,14 +32,14 @@ public:
 
   [[nodiscard]] bool is_running() const { return _is_running; }
 
-  Display(const int window_width, const int window_height) {
+  Display(const int window_display_width, const int window_display_height) {
     if (SDL_Init(SDL_INIT_VIDEO) > 0)
       _sdl_error("Could not initialize SDL2");
 
-    _window =
-        SDL_CreateWindow("Light Ray", SDL_WINDOWPOS_UNDEFINED,
-                         SDL_WINDOWPOS_UNDEFINED, window_width, window_height,
-                         SDL_WINDOW_SHOWN | SDL_WINDOW_ALLOW_HIGHDPI);
+    _window = SDL_CreateWindow("Light Ray", SDL_WINDOWPOS_UNDEFINED,
+                               SDL_WINDOWPOS_UNDEFINED, window_display_width,
+                               window_display_height,
+                               SDL_WINDOW_SHOWN | SDL_WINDOW_ALLOW_HIGHDPI);
     if (_window == nullptr)
       _sdl_error("Could not create window");
 
@@ -58,10 +58,8 @@ public:
   }
 
   void draw_background() {
-    int width = 0;
-    int height = 0;
     constexpr int square_size = 16;
-    SDL_GetRendererOutputSize(_renderer, &width, &height);
+    auto [width, height] = screen_dimensions();
     for (int x = 0; x < width / square_size; x++)
       for (int y = 0; y < height / square_size; y++) {
         if (x % 2 != y % 2)
@@ -80,9 +78,7 @@ public:
   void draw_pixels(Pixels const &pixels) {
     draw_background();
 
-    int width = 0;
-    int height = 0;
-    SDL_GetRendererOutputSize(_renderer, &width, &height);
+    auto [width, height] = screen_dimensions();
 
     for (auto pixel = pixels.begin(); pixel != pixels.end(); ++pixel) {
       if (!is_running())
@@ -149,4 +145,3 @@ public:
     std::cout << message << ms << "ms" << std::endl;
   }
 };
-
