@@ -132,7 +132,7 @@ public:
 };
 
 int main(int /*argc*/, char * /*args*/[]) {
-  Display display(window_width, window_height);
+  Display display(window_width, window_height, 1);
 
   auto screen_dimensions = display.screen_dimensions();
 

@@ -32,14 +32,16 @@ public:
 
   [[nodiscard]] bool is_running() const { return _is_running; }
 
-  Display(const int window_display_width, const int window_display_height) {
+  Display(const int window_display_width, const int window_display_height,
+          const int display_index) {
+
     if (SDL_Init(SDL_INIT_VIDEO) > 0)
       _sdl_error("Could not initialize SDL2");
 
-    _window = SDL_CreateWindow("Light Ray", SDL_WINDOWPOS_UNDEFINED,
-                               SDL_WINDOWPOS_UNDEFINED, window_display_width,
-                               window_display_height,
-                               SDL_WINDOW_SHOWN | SDL_WINDOW_ALLOW_HIGHDPI);
+    _window = SDL_CreateWindow(
+        "Light Ray", SDL_WINDOWPOS_UNDEFINED_DISPLAY(display_index),
+        SDL_WINDOWPOS_UNDEFINED_DISPLAY(display_index), window_display_width,
+        window_display_height, SDL_WINDOW_SHOWN | SDL_WINDOW_ALLOW_HIGHDPI);
     if (_window == nullptr)
       _sdl_error("Could not create window");
 
@@ -47,6 +49,8 @@ public:
         _window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
     if (_renderer == nullptr)
       _sdl_error("Could not create renderer");
+
+    SDL_EnableScreenSaver(); // It's disabled by default
   }
 
   ~Display() {
