@@ -4,6 +4,7 @@
 #include <SDL_events.h>
 #include <SDL_pixels.h>
 #include <SDL_render.h>
+#include <SDL_ttf/SDL_ttf.h>
 #include <boost/format.hpp>
 #include <chrono>
 #include <iostream>
@@ -16,6 +17,12 @@ static void sdl_error(std::string message) {
   throw std::runtime_error(
       boost::str(boost::format("%s: %s\n") % message % SDL_GetError()));
 }
+
+static void ttf_error(std::string message) {
+  throw std::runtime_error(
+      boost::str(boost::format("%s: %s\n") % message % TTF_GetError()));
+}
+
 class TextureLock {
   SDL_Texture &_texture;
   SDL_PixelFormat *_pixel_format = nullptr;
@@ -71,6 +78,8 @@ class Display {
   SDL_Texture *_screen_texture = nullptr;
   SDL_Texture *_background_texture = nullptr;
   SDL_PixelFormat *_pixel_format = nullptr;
+
+  TTF_Font *_font;
 
   std::chrono::time_point<std::chrono::system_clock> _measure_start_time;
 
@@ -140,9 +149,23 @@ public:
     fill_background(*_background_texture);
 
     SDL_EnableScreenSaver(); // It's disabled by default
+
+    if (TTF_Init() != 0)
+      ttf_error("Could not initialize SDL_ttf");
+
+    // load font.ttf at size 16 into font
+    _font = TTF_OpenFont("../vera_mono.ttf", 16);
+    if (_font == nullptr)
+      ttf_error("Could not load font");
   }
 
   ~Display() {
+
+    if (_font != nullptr)
+      TTF_CloseFont(_font);
+
+    TTF_Quit();
+
     if (_background_texture != nullptr)
       SDL_DestroyTexture(_background_texture);
     if (_screen_texture != nullptr)

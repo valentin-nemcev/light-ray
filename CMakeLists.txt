@@ -3,8 +3,8 @@ cmake_minimum_required(VERSION 3.12)
 include("cmake/HunterGate.cmake")
 # https://github.com/ruslo/hunter/releases
 HunterGate(
-    URL "https://github.com/ruslo/hunter/archive/v0.23.14.tar.gz"
-    SHA1 "f58bcf274f29097ac380bfe4955d2a66f077e741"
+    URL "https://github.com/cpp-pm/hunter/archive/v0.23.263.tar.gz"
+    SHA1 "9b96c376bf3526163e81b7adb8db5a0ea8c7e1bf"
 )
 
 project (light-ray)
@@ -12,21 +12,20 @@ project (light-ray)
 hunter_add_package(SDL2)
 find_package(SDL2 CONFIG REQUIRED)
 
+hunter_add_package(SDL_ttf)
+find_package(SDL_ttf CONFIG REQUIRED)
+
 hunter_add_package(Boost)
-# Header-only libraries
 find_package(Boost CONFIG REQUIRED)
 
 hunter_add_package(Eigen)
 find_package(Eigen3 CONFIG REQUIRED)
 
-hunter_add_package(range-v3)
-find_package(range-v3 CONFIG REQUIRED)
-
 add_executable(main main.cpp)
 
 add_executable(test test.cpp)
 
-target_link_libraries(main SDL2::SDL2main SDL2::SDL2 Boost::boost Eigen3::Eigen range-v3::range-v3)
+target_link_libraries(main SDL2::SDL2main SDL2::SDL2 SDL_ttf::SDL_ttf Boost::boost Eigen3::Eigen)
 
 set(CMAKE_CXX_FLAGS "-O3 -std=c++20 -Wall -Wextra -Wpedantic -fdiagnostics-show-template-tree")
 set(CMAKE_BUILD_TYPE Debug)
