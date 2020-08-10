@@ -28,6 +28,8 @@ class Display {
 
   static constexpr int statusbar_display_height = 20;
 
+  Counter _fps_counter;
+
 public:
   Display(const Display &) = delete;
   Display(Display &&) = delete;
@@ -120,12 +122,16 @@ public:
   }
 
   void draw_statusbar() {
+    _fps_counter.increment();
+
+    auto fps = _fps_counter.per_second();
+
     SDLColor bgcolor = {0, 0, 0};
     SDLColor color = {0xff, 0xff, 0xff};
 
     _renderer.fill_rect(_statusbar_rect, bgcolor);
-    _font.text_shaded(_renderer, "Hello world!", color, bgcolor,
-                      _statusbar_rect.x, _statusbar_rect.y);
+    _font.text_shaded(_renderer, fps, color, bgcolor, _statusbar_rect.x,
+                      _statusbar_rect.y);
   }
 
   struct ScreenDimensions {
