@@ -9,27 +9,106 @@
 #include "renderer.hpp"
 #include "stopwatch.hpp"
 
+class Statusbar {
+  SDLRenderer &_renderer;
+  int _font_size;
+  SDLFont _font;
+
+  int _padding;
+  SDL_Rect _padded_rect{};
+  SDL_Rect _rect{};
+  int _baseline;
+
+  Counter _fps_counter;
+
+  static constexpr int display_padding = 4;
+
+  SDLColor _bgcolor = {0, 0, 0};
+  SDLColor _color = {0xff, 0xff, 0xff};
+
+public:
+  Statusbar(const Statusbar &) = delete;
+  Statusbar(Statusbar &&) = delete;
+  Statusbar &operator=(const Statusbar &) = delete;
+  Statusbar &operator=(Statusbar &&) = delete;
+  ~Statusbar() = default;
+
+  Statusbar(int font_display_size, SDLWindow &window, SDLRenderer &renderer)
+      : _renderer(renderer),
+        _font_size(font_display_size * window.display_scale()),
+        _font("../vera_mono.ttf", _font_size),
+        _padding(display_padding * window.display_scale()),
+        _padded_rect({.x = 0,
+                      .y = window.pixel_size().height,
+                      .w = window.pixel_size().width,
+                      .h = _font.height() + _padding * 2}),
+        _rect({.x = _padded_rect.x + _padding,
+               .y = _padded_rect.y + _padding,
+               .w = _padded_rect.w - _padding,
+               .h = _padded_rect.h - _padding}),
+        _baseline(_rect.y + _font.ascent()) {
+    window.pixel_resize(
+        {.width = window.pixel_size().width,
+         .height = window.pixel_size().height + _padded_rect.h});
+    std::cout << "Font size:   " << _font_size << std::endl;
+    std::cout << "Font height: " << _font.height() << std::endl;
+  }
+
+  int draw_histogram(int x, Histogram &histogram) {
+    auto buckets = histogram.normalized_buckets();
+    int size = static_cast<int>(buckets.size());
+    if (size == 0)
+      return x;
+    int width = _font.width() * 4 / size;
+
+    _renderer.fill_rect(
+        {.x = _rect.x + x, .y = _baseline, .w = width * size, .h = 1}, _color);
+    for (auto val : buckets) {
+      int height =
+          static_cast<int>(std::round(static_cast<float>(_font_size) * val));
+      _renderer.fill_rect(
+          {.x = _rect.x + x, .y = _baseline - height, .w = width, .h = height},
+          _color);
+      x += width;
+    }
+    return x;
+  }
+
+  int draw_text(int x, const std::string &text) {
+    return x + _font.text_shaded(_renderer, text, _color, _bgcolor, _rect.x + x,
+                                 _rect.y);
+  }
+
+  void draw(Histogram &pixel_histogram) {
+    _fps_counter.increment();
+
+    auto fps = _fps_counter.per_second();
+
+    _renderer.fill_rect(_padded_rect, _bgcolor);
+
+    int x = 0;
+    x = draw_histogram(x, pixel_histogram);
+    x += _font.width() * 2;
+    x = draw_text(x, fps);
+  }
+};
+
 class Display {
   SDL _sdl;
-
-  SDLFont _font;
 
   SDLWindow _window;
   SDLRenderer _renderer;
 
-  int _screen_pixel_width;
-  int _screen_pixel_height;
+  SDLSize _screen_pixel_size;
   SDL_Rect _screen_rect{};
-  SDL_Rect _statusbar_rect{};
+
+  Statusbar _statusbar;
 
   SDLTexture _screen_texture;
   SDLTexture _background_texture;
 
   bool _is_running = true;
 
-  static constexpr int statusbar_display_padding = 4;
-
-  Counter _fps_counter;
   Histogram _pixel_histogram;
 
 public:
@@ -42,31 +121,24 @@ public:
 
   Display(const int window_display_width, const int window_display_height,
           const int display_index)
-      : _font("../vera_mono.ttf", 16),
-        _window(_sdl.create_window(window_display_width,
-                                   window_display_height + _font.height() +
-                                       statusbar_display_padding * 2,
+      : _window(_sdl.create_window(window_display_width, window_display_height,
                                    display_index)),
         _renderer(_window.create_renderer()),
 
-        _screen_pixel_width(window_display_width * _window.display_scale()),
-        _screen_pixel_height(window_display_height * _window.display_scale()),
+        _screen_pixel_size(
+            {.width = window_display_width * _window.display_scale(),
+             .height = window_display_height * _window.display_scale()}),
 
         _screen_rect({.x = 0,
                       .y = 0,
-                      .w = _screen_pixel_width,
-                      .h = _screen_pixel_height}),
-        _statusbar_rect(
-            {.x = 0,
-             .y = _screen_pixel_height,
-             .w = _screen_pixel_width,
-             .h = _window.pixel_size().height - _screen_pixel_height}),
-        _screen_texture(_renderer.create_texture(
-            _screen_pixel_width, _screen_pixel_height,
-            SDL_TEXTUREACCESS_STREAMING, SDL_BLENDMODE_BLEND)),
-        _background_texture(
-            _renderer.create_texture(_screen_pixel_width, _screen_pixel_height,
-                                     SDL_TEXTUREACCESS_TARGET)) {
+                      .w = _screen_pixel_size.width,
+                      .h = _screen_pixel_size.height}),
+        _statusbar(16, _window, _renderer),
+        _screen_texture(_renderer.create_texture(_screen_pixel_size,
+                                                 SDL_TEXTUREACCESS_STREAMING,
+                                                 SDL_BLENDMODE_BLEND)),
+        _background_texture(_renderer.create_texture(
+            _screen_pixel_size, SDL_TEXTUREACCESS_TARGET)) {
     fill_background(_background_texture);
     draw_screen();
     update();
@@ -98,7 +170,7 @@ public:
 
   void draw_screen() {
     _renderer.copy_to(_background_texture, _screen_rect);
-    draw_statusbar();
+    _statusbar.draw(_pixel_histogram);
   }
 
   void draw_pixels(Pixels const &pixels) {
@@ -124,40 +196,10 @@ public:
       }
     }
     _renderer.copy_to(_screen_texture, _screen_rect);
-    draw_statusbar();
+    _statusbar.draw(_pixel_histogram);
   }
 
-  void draw_statusbar() {
-    _fps_counter.increment();
-
-    auto fps = _fps_counter.per_second();
-
-    SDLColor bgcolor = {0, 0, 0};
-    SDLColor color = {0xff, 0xff, 0xff};
-
-    _renderer.fill_rect(_statusbar_rect, bgcolor);
-    _font.text_shaded(_renderer, fps, color, bgcolor, _statusbar_rect.x + 200,
-                      _statusbar_rect.y);
-
-    int x = 0;
-    for (auto val : _pixel_histogram.normalized_buckets()) {
-      _renderer.fill_rect({.x = _statusbar_rect.x + x,
-                           .y = _statusbar_rect.y,
-                           .w = 16,
-                           .h = static_cast<int>(std::round(16 * val))},
-                          color);
-      x += 16;
-    }
-  }
-
-  struct ScreenDimensions {
-    int width;
-    int height;
-  };
-
-  ScreenDimensions screen_dimensions() {
-    return {.width = _screen_pixel_width, .height = _screen_pixel_height};
-  }
+  SDLSize screen_dimensions() { return _screen_pixel_size; }
 
   void update() {
     SDL_Event event;

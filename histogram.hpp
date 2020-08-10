@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cmath>
 #include <span>
 #include <vector>
 
@@ -27,8 +28,9 @@ public:
   std::span<float> normalized_buckets() {
     std::transform(_buckets.begin(), _buckets.end(),
                    _normalized_buckets.begin(), [&](int value) -> float {
-                     return static_cast<float>(value) /
-                            static_cast<float>(_total_count);
+                     return std::pow(static_cast<float>(value) /
+                                         static_cast<float>(_total_count),
+                                     1.0 / 4);
                    });
     return std::span(_normalized_buckets);
   }

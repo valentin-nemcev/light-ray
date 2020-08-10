@@ -73,7 +73,7 @@ public:
   SDLTexture &operator=(SDLTexture &&) = delete;
 
   SDLTexture(SDL_Renderer *renderer_sdl_ptr, SDLPixelFormat pixel_format,
-             int width, int height, int access, SDL_BlendMode blend_mode);
+             SDLSize size, int access, SDL_BlendMode blend_mode);
   SDLTexture(SDL_Renderer *renderer_sdl_ptr, SDL_Surface *surface_sdl_ptr,
              SDL_BlendMode blend_mode);
 
@@ -114,6 +114,11 @@ public:
   ~SDLWindow() {
     if (_window_sdl_ptr != nullptr)
       SDL_DestroyWindow(_window_sdl_ptr);
+  }
+
+  void pixel_resize(const SDLSize &size) {
+    SDL_SetWindowSize(_window_sdl_ptr, size.width / display_scale(),
+                      size.height / display_scale());
   }
 
   SDLRenderer create_renderer();
@@ -159,6 +164,16 @@ public:
     return size;
   }
 
+  void to_viewport(SDL_Rect &viewport,
+                   const std::function<void(SDLRenderer &)> &callback) {
+
+    if (SDL_RenderSetViewport(_renderer_sdl_ptr, &viewport) != 0)
+      sdl_error("Could not set render viewport");
+    callback(*this);
+    if (SDL_RenderSetViewport(_renderer_sdl_ptr, nullptr) != 0)
+      sdl_error("Could not reset render viewport");
+  }
+
   void to_texture(SDLTexture &texture,
                   const std::function<void(SDLRenderer &)> &callback) {
 
@@ -169,7 +184,7 @@ public:
       sdl_error("Could not set render target to window");
   }
 
-  SDLTexture create_texture(int width, int height, SDL_TextureAccess access,
+  SDLTexture create_texture(SDLSize size, SDL_TextureAccess access,
                             SDL_BlendMode blend_mode = SDL_BLENDMODE_NONE);
   SDLTexture create_texture(SDL_Surface *surface_ptr,
                             SDL_BlendMode blend_mode = SDL_BLENDMODE_NONE);
@@ -194,10 +209,10 @@ SDLRenderer SDLWindow::create_renderer() {
 }
 
 SDLTexture::SDLTexture(SDL_Renderer *renderer_sdl_ptr,
-                       SDLPixelFormat pixel_format, int width, int height,
-                       int access, SDL_BlendMode blend_mode) {
-  _texture =
-      SDL_CreateTexture(renderer_sdl_ptr, pixel_format, access, width, height);
+                       SDLPixelFormat pixel_format, SDLSize size, int access,
+                       SDL_BlendMode blend_mode) {
+  _texture = SDL_CreateTexture(renderer_sdl_ptr, pixel_format, access,
+                               size.width, size.height);
   if (_texture == nullptr)
     sdl_error("Could not create texture");
 
@@ -220,10 +235,9 @@ SDLTexture::~SDLTexture() {
   if (_texture != nullptr)
     SDL_DestroyTexture(_texture);
 }
-SDLTexture SDLRenderer::create_texture(int width, int height,
-                                       SDL_TextureAccess access,
+SDLTexture SDLRenderer::create_texture(SDLSize size, SDL_TextureAccess access,
                                        SDL_BlendMode blend_mode) {
-  return SDLTexture(_renderer_sdl_ptr, pixel_format(), width, height, access,
+  return SDLTexture(_renderer_sdl_ptr, pixel_format(), size, access,
                     blend_mode);
 }
 SDLTexture SDLRenderer::create_texture(SDL_Surface *surface_ptr,
@@ -291,17 +305,30 @@ class SDLFont {
     return {.r = color.r, .g = color.g, .b = color.b, .a = color.a};
   }
 
+  int _height;
+  int _ascent;
+  int _width;
+
 public:
+  [[nodiscard]] int height() const { return _height; }
+  [[nodiscard]] int ascent() const { return _ascent; }
+  [[nodiscard]] int width() const { return _width; }
+
   SDLFont(const SDLFont &) = delete;
   SDLFont(SDLFont &&) = delete;
   SDLFont &operator=(const SDLFont &) = delete;
   SDLFont &operator=(SDLFont &&) = delete;
 
   SDLFont(const std::string &font_file, int size) {
-
     _font_sdl_ptr = TTF_OpenFont(font_file.c_str(), size);
     if (_font_sdl_ptr == nullptr)
       ttf_error("Could not load font");
+
+    TTF_SetFontHinting(_font_sdl_ptr, TTF_HINTING_LIGHT);
+
+    _height = TTF_FontHeight(_font_sdl_ptr);
+    _ascent = TTF_FontAscent(_font_sdl_ptr);
+    _width = text_width(" ");
   };
 
   ~SDLFont() {
@@ -310,10 +337,16 @@ public:
       TTF_CloseFont(_font_sdl_ptr);
   };
 
-  int height() { return TTF_FontHeight(_font_sdl_ptr); }
+  int text_width(const std::string &text) {
+    int width = 0;
+    if (TTF_SizeText(_font_sdl_ptr, text.c_str(), &width, nullptr) != 0) {
+      ttf_error("Could not get text size");
+    }
+    return width;
+  };
 
-  void text_shaded(SDLRenderer &renderer, const std::string &text,
-                   SDLColor color, SDLColor bgcolor, int x, int y) {
+  int text_shaded(SDLRenderer &renderer, const std::string &text,
+                  SDLColor color, SDLColor bgcolor, int x, int y) {
 
     SDL_Surface *text_surface_ptr = TTF_RenderText_Shaded(
         _font_sdl_ptr, text.c_str(), _sdl_color(color), _sdl_color(bgcolor));
@@ -321,12 +354,14 @@ public:
       ttf_error("Could not render text");
 
     SDLTexture text_texture = renderer.create_texture(text_surface_ptr);
+    int width = text_surface_ptr->w;
 
-    SDL_Rect target_rect{
-        .x = x, .y = y, .w = text_surface_ptr->w, .h = text_surface_ptr->h};
+    SDL_Rect target_rect{.x = x, .y = y, .w = width, .h = text_surface_ptr->h};
 
     renderer.copy_to(text_texture, target_rect);
 
     SDL_FreeSurface(text_surface_ptr);
+
+    return width;
   }
 };
