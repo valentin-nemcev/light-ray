@@ -35,6 +35,7 @@ cd build
 
 if [ ! -z $SETUP ]
 then
+  rm -rf ./*
   cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=1 -DCMAKE_BUILD_TYPE=Debug ..
   mv compile_commands.json ..
 fi

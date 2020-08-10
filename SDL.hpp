@@ -60,6 +60,8 @@ class SDLRenderer;
 class SDLTextureRenderer;
 class SDLTextureLock;
 
+using SDLPixelFormat = Uint32;
+
 class SDLTexture {
   SDL_Texture *_texture;
 
@@ -69,9 +71,9 @@ public:
   SDLTexture &operator=(const SDLTexture &) = delete;
   SDLTexture &operator=(SDLTexture &&) = delete;
 
-  SDLTexture(const SDLRenderer &renderer, int width, int height, int access,
-             SDL_BlendMode blend_mode);
-  SDLTexture(const SDLRenderer &renderer, SDL_Surface *surface,
+  SDLTexture(SDL_Renderer *renderer_sdl_ptr, SDLPixelFormat pixel_format,
+             int width, int height, int access, SDL_BlendMode blend_mode);
+  SDLTexture(SDL_Renderer *renderer_sdl_ptr, SDL_Surface *surface_sdl_ptr,
              SDL_BlendMode blend_mode);
 
   ~SDLTexture();
@@ -81,7 +83,7 @@ public:
 };
 
 class SDLWindow {
-  SDL_Window *_window;
+  SDL_Window *_window_sdl_ptr;
   int _pixel_width = 0;
   int _pixel_height = 0;
   int _display_scale = 0;
@@ -96,23 +98,21 @@ public:
 
   SDLWindow(const int display_width, const int display_height,
             const int display_index) {
-    _window = SDL_CreateWindow(
+    _window_sdl_ptr = SDL_CreateWindow(
         "Light Ray", SDL_WINDOWPOS_UNDEFINED_DISPLAY(display_index),
         SDL_WINDOWPOS_UNDEFINED_DISPLAY(display_index), display_width,
         display_height, SDL_WINDOW_SHOWN | SDL_WINDOW_ALLOW_HIGHDPI);
-    if (_window == nullptr)
+    if (_window_sdl_ptr == nullptr)
       sdl_error("Could not create window");
 
-    SDL_GL_GetDrawableSize(_window, &_pixel_width, &_pixel_height);
+    SDL_GL_GetDrawableSize(_window_sdl_ptr, &_pixel_width, &_pixel_height);
     _display_scale = _pixel_width / display_width;
   }
 
   ~SDLWindow() {
-    if (_window != nullptr)
-      SDL_DestroyWindow(_window);
+    if (_window_sdl_ptr != nullptr)
+      SDL_DestroyWindow(_window_sdl_ptr);
   }
-
-  [[nodiscard]] SDL_Window *sdl_ptr() const { return _window; }
 
   SDLRenderer create_renderer();
   SDLTextureRenderer create_texture_renderer(SDLTexture &texture);
@@ -125,10 +125,8 @@ SDLWindow SDL::create_window(const int window_display_width,
   return SDLWindow(window_display_width, window_display_height, display_index);
 }
 
-using SDLPixelFormat = Uint32;
-
 class SDLRenderer {
-  SDL_Renderer *_renderer;
+  SDL_Renderer *_renderer_sdl_ptr;
   SDLPixelFormat _pixel_format;
 
 public:
@@ -137,66 +135,67 @@ public:
   SDLRenderer &operator=(const SDLRenderer &) = delete;
   SDLRenderer &operator=(SDLRenderer &&) = delete;
 
-  SDLRenderer(const SDLWindow &window) {
-    _renderer = SDL_CreateRenderer(window.sdl_ptr(), -1,
-                                   SDL_RENDERER_ACCELERATED |
-                                       SDL_RENDERER_PRESENTVSYNC);
-    if (_renderer == nullptr)
+  SDLRenderer(SDL_Window *window_ptr) {
+    _renderer_sdl_ptr = SDL_CreateRenderer(
+        window_ptr, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    if (_renderer_sdl_ptr == nullptr)
       sdl_error("Could not create renderer");
 
-    _pixel_format = SDL_GetWindowPixelFormat(window.sdl_ptr());
+    _pixel_format = SDL_GetWindowPixelFormat(window_ptr);
   }
 
   ~SDLRenderer() {
-    if (_renderer != nullptr)
-      SDL_DestroyRenderer(_renderer);
+    if (_renderer_sdl_ptr != nullptr)
+      SDL_DestroyRenderer(_renderer_sdl_ptr);
   }
-
-  [[nodiscard]] SDL_Renderer *sdl_ptr() const { return _renderer; }
 
   [[nodiscard]] SDLPixelFormat pixel_format() const { return _pixel_format; }
 
   [[nodiscard]] SDLSize output_size() const {
     SDLSize size;
-    SDL_GetRendererOutputSize(_renderer, &size.width, &size.height);
+    SDL_GetRendererOutputSize(_renderer_sdl_ptr, &size.width, &size.height);
     return size;
   }
 
   void to_texture(SDLTexture &texture,
                   const std::function<void(SDLRenderer &)> &callback) {
 
-    if (SDL_SetRenderTarget(sdl_ptr(), texture.sdl_ptr()) != 0)
+    if (SDL_SetRenderTarget(_renderer_sdl_ptr, texture.sdl_ptr()) != 0)
       sdl_error("Could not set render target to texture");
     callback(*this);
-    if (SDL_SetRenderTarget(sdl_ptr(), nullptr) != 0)
+    if (SDL_SetRenderTarget(_renderer_sdl_ptr, nullptr) != 0)
       sdl_error("Could not set render target to window");
   }
 
   SDLTexture create_texture(int width, int height, SDL_TextureAccess access,
                             SDL_BlendMode blend_mode = SDL_BLENDMODE_NONE);
-  SDLTexture create_texture(SDL_Surface *surface,
+  SDLTexture create_texture(SDL_Surface *surface_ptr,
                             SDL_BlendMode blend_mode = SDL_BLENDMODE_NONE);
 
   void fill_rect(const SDL_Rect &rect, SDLColor color) {
-    SDL_SetRenderDrawColor(_renderer, color.r, color.g, color.b, color.a);
-    SDL_RenderFillRect(_renderer, &rect);
+    SDL_SetRenderDrawColor(_renderer_sdl_ptr, color.r, color.g, color.b,
+                           color.a);
+    SDL_RenderFillRect(_renderer_sdl_ptr, &rect);
   }
 
   void copy_to(SDLTexture &texture, SDL_Rect target_rect) {
-    if (SDL_RenderCopy(_renderer, texture.sdl_ptr(), nullptr, &target_rect) !=
-        0)
+    if (SDL_RenderCopy(_renderer_sdl_ptr, texture.sdl_ptr(), nullptr,
+                       &target_rect) != 0)
       sdl_error("Could not copy background texture");
   }
 
-  void present() { SDL_RenderPresent(_renderer); }
+  void present() { SDL_RenderPresent(_renderer_sdl_ptr); }
 };
 
-SDLRenderer SDLWindow::create_renderer() { return SDLRenderer(*this); }
+SDLRenderer SDLWindow::create_renderer() {
+  return SDLRenderer(_window_sdl_ptr);
+}
 
-SDLTexture::SDLTexture(const SDLRenderer &renderer, int width, int height,
+SDLTexture::SDLTexture(SDL_Renderer *renderer_sdl_ptr,
+                       SDLPixelFormat pixel_format, int width, int height,
                        int access, SDL_BlendMode blend_mode) {
-  _texture = SDL_CreateTexture(renderer.sdl_ptr(), renderer.pixel_format(),
-                               access, width, height);
+  _texture =
+      SDL_CreateTexture(renderer_sdl_ptr, pixel_format, access, width, height);
   if (_texture == nullptr)
     sdl_error("Could not create texture");
 
@@ -204,10 +203,10 @@ SDLTexture::SDLTexture(const SDLRenderer &renderer, int width, int height,
     sdl_error("Could not set screen texture blend mode");
 }
 
-SDLTexture::SDLTexture(const SDLRenderer &renderer, SDL_Surface *surface,
-                       SDL_BlendMode blend_mode) {
+SDLTexture::SDLTexture(SDL_Renderer *renderer_sdl_ptr,
+                       SDL_Surface *surface_sdl_ptr, SDL_BlendMode blend_mode) {
 
-  _texture = SDL_CreateTextureFromSurface(renderer.sdl_ptr(), surface);
+  _texture = SDL_CreateTextureFromSurface(renderer_sdl_ptr, surface_sdl_ptr);
   if (_texture == nullptr)
     sdl_error("Could not create texture");
 
@@ -222,16 +221,17 @@ SDLTexture::~SDLTexture() {
 SDLTexture SDLRenderer::create_texture(int width, int height,
                                        SDL_TextureAccess access,
                                        SDL_BlendMode blend_mode) {
-  return SDLTexture(*this, width, height, access, blend_mode);
+  return SDLTexture(_renderer_sdl_ptr, pixel_format(), width, height, access,
+                    blend_mode);
 }
-SDLTexture SDLRenderer::create_texture(SDL_Surface *surface,
+SDLTexture SDLRenderer::create_texture(SDL_Surface *surface_ptr,
                                        SDL_BlendMode blend_mode) {
-  return SDLTexture(*this, surface, blend_mode);
+  return SDLTexture(_renderer_sdl_ptr, surface_ptr, blend_mode);
 }
 
 class SDLTextureLock {
-  SDL_Texture *_texture;
-  SDL_PixelFormat *_pixel_format = nullptr;
+  SDL_Texture *_texture_sdl_ptr;
+  SDL_PixelFormat *_pixel_format_sdl_ptr = nullptr;
   std::span<Uint32> _texture_span;
   int _width = 0;
   int _height = 0;
@@ -242,39 +242,41 @@ public:
   SDLTextureLock &operator=(const SDLTextureLock &) = delete;
   SDLTextureLock &operator=(SDLTextureLock &&) = delete;
 
-  SDLTextureLock(SDLTexture &texture) : _texture(texture.sdl_ptr()) {
+  SDLTextureLock(SDLTexture &texture) : _texture_sdl_ptr(texture.sdl_ptr()) {
 
     Uint32 format_tag = 0;
 
     int access = 0;
-    SDL_QueryTexture(_texture, &format_tag, &access, &_width, &_height);
+    SDL_QueryTexture(_texture_sdl_ptr, &format_tag, &access, &_width, &_height);
 
-    _pixel_format = SDL_AllocFormat(format_tag);
-    if (_pixel_format == nullptr)
+    _pixel_format_sdl_ptr = SDL_AllocFormat(format_tag);
+    if (_pixel_format_sdl_ptr == nullptr)
       sdl_error("Could not allocate pixel format");
 
-    void *texture_pixels = nullptr;
+    void *texture_pixels_ptr = nullptr;
     int byte_pitch = 0;
-    if (SDL_LockTexture(_texture, nullptr, &texture_pixels, &byte_pitch) != 0)
+    if (SDL_LockTexture(_texture_sdl_ptr, nullptr, &texture_pixels_ptr,
+                        &byte_pitch) != 0)
       sdl_error("Could not lock screen texture for updating");
 
     _texture_span =
-        std::span(static_cast<Uint32 *>(texture_pixels), _width * _height);
+        std::span(static_cast<Uint32 *>(texture_pixels_ptr), _width * _height);
   }
 
   ~SDLTextureLock() {
-    SDL_UnlockTexture(_texture);
-    if (_pixel_format != nullptr) {
-      SDL_FreeFormat(_pixel_format);
+    SDL_UnlockTexture(_texture_sdl_ptr);
+    if (_pixel_format_sdl_ptr != nullptr) {
+      SDL_FreeFormat(_pixel_format_sdl_ptr);
     }
   }
 
   void set_xy_rgba(int x, int y, Uint8 r, Uint8 g, Uint8 b, Uint8 a) {
-    _texture_span[x + (y * _width)] = SDL_MapRGBA(_pixel_format, r, g, b, a);
+    _texture_span[x + (y * _width)] =
+        SDL_MapRGBA(_pixel_format_sdl_ptr, r, g, b, a);
   }
 
   void set_i_rgba(int i, Uint8 r, Uint8 g, Uint8 b, Uint8 a) {
-    _texture_span[i] = SDL_MapRGBA(_pixel_format, r, g, b, a);
+    _texture_span[i] = SDL_MapRGBA(_pixel_format_sdl_ptr, r, g, b, a);
   }
 };
 
@@ -310,18 +312,18 @@ public:
   void text_shaded(SDLRenderer &renderer, const std::string &text,
                    SDLColor color, SDLColor bgcolor, int x, int y) {
 
-    SDL_Surface *text_surface = TTF_RenderText_Shaded(
+    SDL_Surface *text_surface_ptr = TTF_RenderText_Shaded(
         _font, text.c_str(), _sdl_color(color), _sdl_color(bgcolor));
-    if (text_surface == nullptr)
+    if (text_surface_ptr == nullptr)
       ttf_error("Could not render text");
 
-    SDLTexture text_texture = renderer.create_texture(text_surface);
+    SDLTexture text_texture = renderer.create_texture(text_surface_ptr);
 
     SDL_Rect target_rect{
-        .x = x, .y = y, .w = text_surface->w, .h = text_surface->h};
+        .x = x, .y = y, .w = text_surface_ptr->w, .h = text_surface_ptr->h};
 
     renderer.copy_to(text_texture, target_rect);
 
-    SDL_FreeSurface(text_surface);
+    SDL_FreeSurface(text_surface_ptr);
   }
 };

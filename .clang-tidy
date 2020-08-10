@@ -17,6 +17,10 @@ CheckOptions:
   - { key: readability-identifier-naming.PrivateMethodPrefix,    value: _ }
   - { key: readability-identifier-naming.ProtectedMethodPrefix,  value: _ }
 
+
+  - { key: readability-identifier-naming.PointerParameterSuffix, value: _ptr }
+  - { key: readability-identifier-naming.LocalPointerSuffix, value: _ptr }
+
   - key:             cert-dcl16-c.NewSuffixes
     value:           'L;LL;LU;LLU'
   - key:             cert-oop54-cpp.WarnOnlyIfThisHasSuspiciousField

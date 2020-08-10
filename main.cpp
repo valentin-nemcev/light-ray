@@ -55,14 +55,14 @@ public:
   ChunkQueue(const unsigned pixel_count, const unsigned chunk_count)
       : _queue(_allocate_queue(pixel_count, chunk_count)){};
 
-  PixelChunk &take_next_chunk(const Worker *worker) {
+  PixelChunk &take_next_chunk(const Worker *worker_ptr) {
     const std::lock_guard<std::mutex> lock(_queue_mutex);
     for (std::size_t i = 0; i < _queue.size(); i++) {
       PixelChunk &chunk = _queue[_next_chunk_index];
       _next_chunk_index = (_next_chunk_index + 1) % _queue.size();
       if (chunk.worker != nullptr)
         continue;
-      chunk.worker = worker;
+      chunk.worker = worker_ptr;
       return chunk;
     }
     throw std::runtime_error("Render queue drained");
@@ -131,6 +131,9 @@ public:
   }
 };
 
+// TODO:
+// https://stackoverflow.com/questions/32257840/properly-terminating-program-using-exceptions
+// NOLINTNEXTLINE(bugprone-exception-escape)
 int main(int /*argc*/, char * /*args*/[]) {
   Display display(window_width, window_height, 1);
 
