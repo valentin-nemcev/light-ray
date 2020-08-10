@@ -1,13 +1,13 @@
 #pragma once
 
 #include <boost/format.hpp>
-#include <chrono>
 #include <iostream>
 #include <span>
 #include <string>
 
 #include "SDL.hpp"
 #include "renderer.hpp"
+#include "stopwatch.hpp"
 
 class Display {
   SDL _sdl;
@@ -23,8 +23,6 @@ class Display {
   SDLTexture _background_texture;
 
   SDLFont _font;
-
-  std::chrono::time_point<std::chrono::system_clock> _measure_start_time;
 
   bool _is_running = true;
 
@@ -66,6 +64,8 @@ public:
         _font("../vera_mono.ttf",
               statusbar_display_height * _window.display_scale()) {
     fill_background(_background_texture);
+    draw_screen();
+    update();
 
     SDL_EnableScreenSaver(); // It's disabled by default
   }
@@ -92,8 +92,13 @@ public:
     });
   }
 
-  void draw_pixels(Pixels const &pixels) {
+  void draw_screen() {
     _renderer.copy_to(_background_texture, _screen_rect);
+    draw_statusbar();
+  }
+
+  void draw_pixels(Pixels const &pixels) {
+    draw_screen();
 
     {
       SDLTextureLock texture_lock = _screen_texture.lock();
@@ -112,8 +117,6 @@ public:
       }
     }
     _renderer.copy_to(_screen_texture, _screen_rect);
-
-    draw_statusbar();
   }
 
   void draw_statusbar() {
@@ -144,6 +147,7 @@ public:
 
   void process_event(SDL_Event &event) {
     if (event.type == SDL_QUIT) {
+      std::cout << "Exiting..." << std::endl;
       _is_running = false;
     }
   }
@@ -153,19 +157,5 @@ public:
     if (SDL_WaitEvent(&event) != 0) {
       process_event(event);
     }
-  }
-
-  void start_measure() {
-    _measure_start_time = std::chrono::system_clock::now();
-  }
-
-  void complete_measure(std::string const &message) {
-    const auto duration =
-        std::chrono::system_clock::now() - _measure_start_time;
-
-    const auto ms =
-        std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
-
-    std::cout << message << ms << "ms" << std::endl;
   }
 };

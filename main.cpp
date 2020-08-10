@@ -7,15 +7,19 @@
 #include <ostream>
 #include <random>
 #include <thread>
+#include <utility>
 
 #include "display.hpp"
 #include "renderer.hpp"
+#include "stopwatch.hpp"
 
 // default constructors reference
 // https://en.cppreference.com/w/cpp/language/rule_of_three
 
 constexpr unsigned window_width = 640;
 constexpr unsigned window_height = 480;
+
+;
 
 class Worker;
 
@@ -131,25 +135,7 @@ public:
   }
 };
 
-// TODO:
-// https://stackoverflow.com/questions/32257840/properly-terminating-program-using-exceptions
-// NOLINTNEXTLINE(bugprone-exception-escape)
-int main(int /*argc*/, char * /*args*/[]) {
-  Display display(window_width, window_height, 1);
-
-  auto screen_dimensions = display.screen_dimensions();
-
-  std::cout << boost::format("Image dimensions: %dx%d\n") %
-                   screen_dimensions.width % screen_dimensions.height;
-
-  // Camera camera(Vector3d(4, 2, 1.5), Vector3d(0, 0, 0.5),
-  //               Vector2i(screen_dimensions.width, screen_dimensions.height));
-
-  display.start_measure();
-  Camera camera(Vector3d(2, 3, 4), Vector3d(0, 0, 0.5),
-                Vector2i(screen_dimensions.width, screen_dimensions.height));
-
-  display.complete_measure("Allocated camera in ");
+Scene create_scene() {
   Scene scene;
 
   scene.push_back(std::make_unique<Object>(
@@ -173,13 +159,33 @@ int main(int /*argc*/, char * /*args*/[]) {
       std::make_unique<SkyShape>(),
       std::make_unique<SkySurface>(Vector3d(-4, 6, 4), deg_to_rad(15 /*0.53*/),
                                    25, 0.25)));
+  return scene;
+}
 
-  std::cout << boost::format("Allocated scene\n");
-  display.draw_pixels(camera.pixels);
-  display.update();
+// TODO:
+// https://stackoverflow.com/questions/32257840/properly-terminating-program-using-exceptions
+// NOLINTNEXTLINE(bugprone-exception-escape)
+int main(int /*argc*/, char * /*args*/[]) {
+  Stopwatch stopwatch("Allocating display");
+  Display display(window_width, window_height, 1);
 
-  std::cout << boost::format("Window ready\n");
-  display.start_measure();
+  auto screen_dimensions = display.screen_dimensions();
+
+  std::cout << boost::format("Image dimensions: %dx%d\n") %
+                   screen_dimensions.width % screen_dimensions.height;
+
+  // Camera camera(Vector3d(4, 2, 1.5), Vector3d(0, 0, 0.5),
+  //               Vector2i(screen_dimensions.width, screen_dimensions.height));
+
+  stopwatch("Allocating camera");
+  Camera camera(Vector3d(2, 3, 4), Vector3d(0, 0, 0.5),
+                Vector2i(screen_dimensions.width, screen_dimensions.height));
+
+  stopwatch("Allocating scene");
+
+  Scene scene = create_scene();
+
+  stopwatch("Rendering");
 
   const auto thread_count = std::thread::hardware_concurrency();
 
@@ -208,7 +214,7 @@ int main(int /*argc*/, char * /*args*/[]) {
 
   for (auto &worker : workers)
     worker->stop_rendering();
-  display.complete_measure("Rendered in ");
+  stopwatch.stop();
 
   while (display.is_running())
     display.wait_for_event();
