@@ -6,6 +6,7 @@
 #include <SDL_render.h>
 #include <SDL_ttf/SDL_ttf.h>
 #include <boost/format.hpp>
+#include <iostream>
 #include <span>
 
 static void sdl_error(std::string message) {
@@ -84,12 +85,12 @@ public:
 
 class SDLWindow {
   SDL_Window *_window_sdl_ptr;
-  int _pixel_width = 0;
-  int _pixel_height = 0;
+  SDLSize _pixel_size;
   int _display_scale = 0;
 
 public:
   [[nodiscard]] int display_scale() const { return _display_scale; }
+  [[nodiscard]] SDLSize pixel_size() const { return _pixel_size; }
 
   SDLWindow(const SDLWindow &) = delete;
   SDLWindow(SDLWindow &&) = delete;
@@ -105,8 +106,9 @@ public:
     if (_window_sdl_ptr == nullptr)
       sdl_error("Could not create window");
 
-    SDL_GL_GetDrawableSize(_window_sdl_ptr, &_pixel_width, &_pixel_height);
-    _display_scale = _pixel_width / display_width;
+    SDL_GL_GetDrawableSize(_window_sdl_ptr, &_pixel_size.width,
+                           &_pixel_size.height);
+    _display_scale = _pixel_size.width / display_width;
   }
 
   ~SDLWindow() {
@@ -283,7 +285,7 @@ public:
 SDLTextureLock SDLTexture::lock() { return SDLTextureLock(*this); };
 
 class SDLFont {
-  TTF_Font *_font = nullptr;
+  TTF_Font *_font_sdl_ptr = nullptr;
 
   [[nodiscard]] static SDL_Color _sdl_color(const SDLColor color) {
     return {.r = color.r, .g = color.g, .b = color.b, .a = color.a};
@@ -297,23 +299,24 @@ public:
 
   SDLFont(const std::string &font_file, int size) {
 
-    _font = TTF_OpenFont(font_file.c_str(), size);
-    if (_font == nullptr)
+    _font_sdl_ptr = TTF_OpenFont(font_file.c_str(), size);
+    if (_font_sdl_ptr == nullptr)
       ttf_error("Could not load font");
   };
 
   ~SDLFont() {
 
-    if (_font != nullptr)
-      TTF_CloseFont(_font);
+    if (_font_sdl_ptr != nullptr)
+      TTF_CloseFont(_font_sdl_ptr);
   };
-  TTF_Font *sdl_ptr() { return _font; }
+
+  int height() { return TTF_FontHeight(_font_sdl_ptr); }
 
   void text_shaded(SDLRenderer &renderer, const std::string &text,
                    SDLColor color, SDLColor bgcolor, int x, int y) {
 
     SDL_Surface *text_surface_ptr = TTF_RenderText_Shaded(
-        _font, text.c_str(), _sdl_color(color), _sdl_color(bgcolor));
+        _font_sdl_ptr, text.c_str(), _sdl_color(color), _sdl_color(bgcolor));
     if (text_surface_ptr == nullptr)
       ttf_error("Could not render text");
 
