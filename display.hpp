@@ -88,8 +88,9 @@ class Display {
   int _screen_pixel_width;
   int _screen_pixel_height;
   SDL_Rect _screen_rect{};
+  SDL_Rect _statusbar_rect{};
 
-  static constexpr int statusbar_display_height = 0;
+  static constexpr int statusbar_display_height = 20;
 
 public:
   Display(const Display &) = delete;
@@ -130,8 +131,13 @@ public:
 
     _screen_pixel_width = window_display_width * display_scale;
     _screen_pixel_height = window_display_height * display_scale;
+
     _screen_rect = {
         .x = 0, .y = 0, .w = _screen_pixel_width, .h = _screen_pixel_height};
+    _statusbar_rect = {.x = 0,
+                       .y = _screen_pixel_height,
+                       .w = _screen_pixel_width,
+                       .h = (statusbar_display_height * display_scale)};
 
     _screen_texture = SDL_CreateTexture(
         _renderer, SDL_GetWindowPixelFormat(_window),
@@ -154,7 +160,8 @@ public:
       ttf_error("Could not initialize SDL_ttf");
 
     // load font.ttf at size 16 into font
-    _font = TTF_OpenFont("../vera_mono.ttf", 16);
+    _font = TTF_OpenFont("../vera_mono.ttf",
+                         statusbar_display_height * display_scale);
     if (_font == nullptr)
       ttf_error("Could not load font");
   }
@@ -227,6 +234,40 @@ public:
     }
     if (SDL_RenderCopy(_renderer, _screen_texture, nullptr, &_screen_rect) != 0)
       sdl_error("Could not copy screen texture");
+
+    draw_statusbar();
+  }
+
+  void draw_statusbar() {
+    SDL_Color bgcolor = {0, 0, 0, SDL_ALPHA_OPAQUE};
+    SDL_Color color = {0xff, 0xff, 0xff, SDL_ALPHA_OPAQUE};
+
+    if (SDL_SetRenderDrawColor(_renderer, bgcolor.r, bgcolor.g, bgcolor.b,
+                               bgcolor.a) != 0)
+      sdl_error("Could not set renderer color");
+    if (SDL_RenderFillRect(_renderer, &_statusbar_rect) != 0)
+      sdl_error("Could not fill statusbar rect");
+
+    SDL_Surface *text_surface =
+        TTF_RenderText_Shaded(_font, "Hello World!", color, bgcolor);
+    if (text_surface == nullptr)
+      ttf_error("Could not render text");
+
+    SDL_Texture *text_texture =
+        SDL_CreateTextureFromSurface(_renderer, text_surface);
+    if (text_texture == nullptr)
+      sdl_error("Could not create text texture");
+
+    SDL_Rect target_rect{.x = _statusbar_rect.x,
+                         .y = _statusbar_rect.y,
+                         .w = text_surface->w,
+                         .h = text_surface->h};
+
+    if (SDL_RenderCopy(_renderer, text_texture, nullptr, &target_rect) != 0)
+      sdl_error("Could not copy text texture");
+
+    SDL_DestroyTexture(text_texture);
+    SDL_FreeSurface(text_surface);
   }
 
   struct ScreenDimensions {
