@@ -173,7 +173,7 @@ public:
     _statusbar.draw(_pixel_histogram);
   }
 
-  void draw_pixels(Pixels const &pixels) {
+  void draw_pixels(Pixels &pixels) {
     _renderer.copy_to(_background_texture, _screen_rect);
 
     _pixel_histogram = Histogram(16, 256);
@@ -189,9 +189,10 @@ public:
         if (pixel->empty())
           texture_lock.set_i_rgba(index, 0, 0, 0, SDL_ALPHA_TRANSPARENT);
         else {
-          texture_lock.set_i_rgba(index, pixel->int_r(), pixel->int_g(),
-                                  pixel->int_b(), SDL_ALPHA_OPAQUE);
-          _pixel_histogram.count_value(pixel->int_r());
+          auto color = pixel->color();
+          texture_lock.set_i_rgba(index, color.r, color.g, color.b,
+                                  SDL_ALPHA_OPAQUE);
+          _pixel_histogram.count_value(color.r);
         }
       }
     }

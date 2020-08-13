@@ -2,8 +2,10 @@
 
 #include <Eigen/Dense>
 #include <Eigen/src/Core/Matrix.h>
+#include <SDL_stdinc.h>
 #include <boost/format.hpp>
 #include <iostream>
+#include <optional>
 #include <ostream>
 #include <random>
 #include <variant>
@@ -254,13 +256,23 @@ public:
 using Scene = std::vector<std::unique_ptr<Object>>;
 using SceneRef = const std::vector<std::unique_ptr<Object>> &;
 
+struct PixelColor {
+  Uint8 r;
+  Uint8 g;
+  Uint8 b;
+};
+
 struct CameraPixel {
 private:
-  double _value = 0;
+  double _value_sum = 0;
   unsigned _iterations = 0;
 
-  [[nodiscard]] double _average_v() const {
-    return _value / (double)_iterations;
+  std::optional<PixelColor> _color;
+
+  static constexpr double gamma = 1 / 1.5;
+
+  [[nodiscard]] double _value() const {
+    return std::pow(_value_sum / (double)_iterations, gamma);
   }
 
 public:
@@ -268,20 +280,17 @@ public:
   [[nodiscard]] unsigned iterations() const { return _iterations; }
 
   void add(double value) {
-    _value += value;
+    _value_sum += value;
     _iterations++;
+    _color.reset();
   }
 
-  [[nodiscard]] int int_r() const {
-    return std::min(255, static_cast<int>(255.0 * _average_v()));
-  }
-
-  [[nodiscard]] int int_g() const {
-    return std::min(255, static_cast<int>(255.0 * _average_v()));
-  }
-
-  [[nodiscard]] int int_b() const {
-    return std::min(255, static_cast<int>(255.0 * _average_v()));
+  [[nodiscard]] PixelColor color() {
+    if (!_color) {
+      Uint8 w = static_cast<Uint8>(std::clamp(255.0 * _value(), 0.0, 255.0));
+      _color = {.r = w, .g = w, .b = w};
+    }
+    return _color.value();
   }
 
   static Vector2i index_to_coord(const unsigned index, const unsigned width) {
@@ -341,20 +350,20 @@ class Renderer {
   };
 
   static std::pair<double, const Object *>
-  _closest_intersecting_object(SceneRef scene, const Object *prev_object,
+  _closest_intersecting_object(SceneRef scene, const Object *prev_object_ptr,
                                const Ray &ray) {
     double closest_distance = std::numeric_limits<double>::infinity();
-    const Object *closest_object = nullptr;
+    const Object *closest_object_ptr = nullptr;
     for (const auto &object : scene) {
-      if (object.get() == prev_object)
+      if (object.get() == prev_object_ptr)
         continue;
       const double distance = object->shape->intersection_distance(ray);
       if (distance > 0 && distance <= closest_distance) {
         closest_distance = distance;
-        closest_object = object.get();
+        closest_object_ptr = object.get();
       }
     }
-    return std::make_pair(closest_distance, closest_object);
+    return std::make_pair(closest_distance, closest_object_ptr);
   }
 
   [[nodiscard]] static double _trace(SceneRef scene, const Camera &camera,
@@ -362,11 +371,11 @@ class Renderer {
     Ray ray = _emit(camera, pixel_index);
     RayTermination result{.value = -1};
 
-    const Object *prev_object = nullptr;
+    const Object *prev_object_ptr = nullptr;
     constexpr int max_bounces = 16;
     for (int bounce = 0; bounce < max_bounces; bounce++) {
       auto [distance, object] =
-          _closest_intersecting_object(scene, prev_object, ray);
+          _closest_intersecting_object(scene, prev_object_ptr, ray);
 
       if (object == nullptr) {
         _log_message(pixel_index,
@@ -374,21 +383,21 @@ class Renderer {
         break;
       }
 
-      prev_object = object;
+      prev_object_ptr = object;
 
       const Vector3d point = ray.advance(distance);
       const Vector3d normal = object->shape->normal_at(point);
       const RayIntersection this_intersection =
           object->surface->intersect_at(point, normal, ray.direction);
 
-      if (const auto *termination =
+      if (const auto *termination_ptr =
               std::get_if<RayTermination>(&this_intersection)) {
-        result = *termination;
+        result = *termination_ptr;
         break;
       }
-      if (const auto *const bounced_ray =
+      if (const auto *const bounced_ray_ptr =
               std::get_if<Ray>(&this_intersection)) {
-        ray = *bounced_ray;
+        ray = *bounced_ray_ptr;
       }
       if (bounce == max_bounces - 1)
         _log_message(
