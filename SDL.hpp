@@ -19,6 +19,11 @@ static void ttf_error(std::string message) {
       boost::str(boost::format("%s: %s\n") % message % TTF_GetError()));
 }
 
+struct SDLPoint {
+  int x = 0;
+  int y = 0;
+};
+
 struct SDLSize {
   int width = 0;
   int height = 0;
@@ -29,7 +34,11 @@ struct SDLColor {
   Uint8 g = 0;
   Uint8 b = 0;
   Uint8 a = SDL_ALPHA_OPAQUE;
+
+  static SDLColor transparent;
 };
+
+SDLColor SDLColor::transparent = {0, 0, 0, SDL_ALPHA_TRANSPARENT};
 
 class SDLWindow;
 
@@ -109,6 +118,8 @@ public:
     SDL_GL_GetDrawableSize(_window_sdl_ptr, &_pixel_size.width,
                            &_pixel_size.height);
     _display_scale = _pixel_size.width / display_width;
+
+    SDL_EnableScreenSaver(); // It's disabled by default
   }
 
   ~SDLWindow() {
@@ -119,6 +130,14 @@ public:
   void pixel_resize(const SDLSize &size) {
     SDL_SetWindowSize(_window_sdl_ptr, size.width / display_scale(),
                       size.height / display_scale());
+  }
+
+  [[nodiscard]] SDLPoint pixel_mouse_pos() const {
+    SDLPoint point;
+    SDL_GetMouseState(&point.x, &point.y);
+    point.x *= display_scale();
+    point.y *= display_scale();
+    return point;
   }
 
   SDLRenderer create_renderer();
@@ -286,13 +305,14 @@ public:
     }
   }
 
-  void set_xy_rgba(int x, int y, Uint8 r, Uint8 g, Uint8 b, Uint8 a) {
+  void set_xy_rgba(int x, int y, const SDLColor &color) {
     _texture_span[x + (y * _width)] =
-        SDL_MapRGBA(_pixel_format_sdl_ptr, r, g, b, a);
+        SDL_MapRGBA(_pixel_format_sdl_ptr, color.r, color.g, color.b, color.a);
   }
 
-  void set_i_rgba(int i, Uint8 r, Uint8 g, Uint8 b, Uint8 a) {
-    _texture_span[i] = SDL_MapRGBA(_pixel_format_sdl_ptr, r, g, b, a);
+  void set_i_rgba(int i, const SDLColor &color) {
+    _texture_span[i] =
+        SDL_MapRGBA(_pixel_format_sdl_ptr, color.r, color.g, color.b, color.a);
   }
 };
 
@@ -347,6 +367,8 @@ public:
 
   int text_shaded(SDLRenderer &renderer, const std::string &text,
                   SDLColor color, SDLColor bgcolor, int x, int y) {
+    if (text.empty())
+      return 0;
 
     SDL_Surface *text_surface_ptr = TTF_RenderText_Shaded(
         _font_sdl_ptr, text.c_str(), _sdl_color(color), _sdl_color(bgcolor));

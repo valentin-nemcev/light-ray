@@ -50,8 +50,6 @@ public:
     window.pixel_resize(
         {.width = window.pixel_size().width,
          .height = window.pixel_size().height + _padded_rect.h});
-    std::cout << "Font size:   " << _font_size << std::endl;
-    std::cout << "Font height: " << _font.height() << std::endl;
   }
 
   int draw_histogram(int x, Histogram &histogram) {
@@ -79,17 +77,22 @@ public:
                                  _rect.y);
   }
 
-  void draw(Histogram &pixel_histogram) {
+  void clear() { _renderer.fill_rect(_padded_rect, _bgcolor); }
+
+  void draw(Histogram &pixel_histogram, PixelColor &current_pixel_color) {
     _fps_counter.increment();
 
     auto fps = _fps_counter.per_second();
 
-    _renderer.fill_rect(_padded_rect, _bgcolor);
+    clear();
 
     int x = 0;
     x = draw_histogram(x, pixel_histogram);
     x += _font.width() * 2;
     x = draw_text(x, fps);
+    x += _font.width() * 2;
+    x = draw_text(x, boost::str(boost::format("%d") %
+                                static_cast<int>(current_pixel_color.r)));
   }
 };
 
@@ -110,6 +113,8 @@ class Display {
   bool _is_running = true;
 
   Histogram _pixel_histogram;
+
+  Pixels *_pixels_ptr = nullptr;
 
 public:
   Display(const Display &) = delete;
@@ -142,11 +147,11 @@ public:
     fill_background(_background_texture);
     draw_screen();
     update();
-
-    SDL_EnableScreenSaver(); // It's disabled by default
   }
 
   ~Display() = default;
+
+  void set_pixels(Pixels *pixels_ptr) { _pixels_ptr = pixels_ptr; }
 
   void fill_background(SDLTexture &texture) {
     constexpr int square_size = 16;
@@ -170,34 +175,36 @@ public:
 
   void draw_screen() {
     _renderer.copy_to(_background_texture, _screen_rect);
-    _statusbar.draw(_pixel_histogram);
+    _statusbar.clear();
   }
 
-  void draw_pixels(Pixels &pixels) {
+  void draw_pixels() {
     _renderer.copy_to(_background_texture, _screen_rect);
 
     _pixel_histogram = Histogram(16, 256);
     {
       SDLTextureLock texture_lock = _screen_texture.lock();
 
-      for (auto pixel = pixels.begin(); pixel != pixels.end(); ++pixel) {
+      for (size_t index = 0; index < _pixels_ptr->size(); index++) {
         if (!is_running())
           break;
 
-        int index = std::distance(pixels.begin(), pixel);
+        CameraPixel &pixel = (*_pixels_ptr)[index];
 
-        if (pixel->empty())
-          texture_lock.set_i_rgba(index, 0, 0, 0, SDL_ALPHA_TRANSPARENT);
+        if (pixel.empty())
+          texture_lock.set_i_rgba(index, SDLColor::transparent);
         else {
-          auto color = pixel->color();
-          texture_lock.set_i_rgba(index, color.r, color.g, color.b,
-                                  SDL_ALPHA_OPAQUE);
+          auto color = pixel.color();
+          texture_lock.set_i_rgba(index,
+                                  {.r = color.r, .g = color.g, .b = color.b});
           _pixel_histogram.count_value(color.r);
         }
       }
     }
     _renderer.copy_to(_screen_texture, _screen_rect);
-    _statusbar.draw(_pixel_histogram);
+    auto [x, y] = _window.pixel_mouse_pos();
+    auto color = _pixels_ptr->at(_screen_rect.w * y + x).color();
+    _statusbar.draw(_pixel_histogram, color);
   }
 
   SDLSize screen_dimensions() { return _screen_pixel_size; }

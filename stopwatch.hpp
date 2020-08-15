@@ -46,7 +46,7 @@ class Counter {
   int _count = 0;
   std::chrono::time_point<std::chrono::system_clock> _start_time;
 
-  std::string _per_second_str = "-";
+  std::string _per_second_str;
 
   int _reset_and_get_count() {
     _start_time = std::chrono::system_clock::now();
@@ -55,8 +55,15 @@ class Counter {
     return count;
   };
 
+  static std::string _format(double value) {
+    return boost::str(boost::format("%4.1f") % value);
+  }
+
 public:
-  Counter() { _reset_and_get_count(); };
+  Counter() {
+    _reset_and_get_count();
+    _per_second_str = _format(0);
+  };
 
   void increment() { _count++; };
 
@@ -66,8 +73,7 @@ public:
             std::chrono::system_clock::now() - _start_time);
 
     if (seconds.count() > 1.0) {
-      _per_second_str = boost::str(boost::format("%4.1f") %
-                                   (_reset_and_get_count() / seconds.count()));
+      _per_second_str = _format((_reset_and_get_count() / seconds.count()));
     }
 
     return _per_second_str;

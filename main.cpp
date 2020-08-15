@@ -181,6 +181,8 @@ int main(int /*argc*/, char * /*args*/[]) {
   Camera camera(Vector3d(2, 3, 4), Vector3d(0, 0, 0.5),
                 Vector2i(screen_dimensions.width, screen_dimensions.height));
 
+  display.set_pixels(&camera.pixels);
+
   stopwatch("Allocating scene");
 
   Scene scene = create_scene();
@@ -206,7 +208,7 @@ int main(int /*argc*/, char * /*args*/[]) {
     bool is_rendering = false;
     for (auto &worker : workers)
       is_rendering = is_rendering || worker->is_rendering();
-    display.draw_pixels(camera.pixels);
+    display.draw_pixels();
     display.update();
     if (!is_rendering)
       break;
