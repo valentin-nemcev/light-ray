@@ -257,9 +257,9 @@ using Scene = std::vector<std::unique_ptr<Object>>;
 using SceneRef = const std::vector<std::unique_ptr<Object>> &;
 
 struct PixelColor {
-  Uint8 r;
-  Uint8 g;
-  Uint8 b;
+  Uint8 red;
+  Uint8 green;
+  Uint8 blue;
   double value;
   double variance;
 };
@@ -298,8 +298,11 @@ public:
     if (!_color) {
       auto value = _gamma_correct(_value);
       Uint8 w = static_cast<Uint8>(std::clamp(255.0 * value, 0.0, 255.0));
-      _color = {
-          .r = w, .g = w, .b = w, .value = _value, .variance = _variance()};
+      _color = {.red = w,
+                .green = w,
+                .blue = w,
+                .value = _value,
+                .variance = _variance()};
     }
     return _color.value();
   }

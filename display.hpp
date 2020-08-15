@@ -73,8 +73,8 @@ public:
   }
 
   int draw_text(int x, const std::string &text) {
-    return x + _font.text_shaded(_renderer, text, _color, _bgcolor, _rect.x + x,
-                                 _rect.y);
+    return x + _font.text_shaded(_renderer, text, _color, _bgcolor,
+                                 {.x = _rect.x + x, .y = _rect.y});
   }
 
   void clear() { _renderer.fill_rect(_padded_rect, _bgcolor); }
@@ -92,7 +92,7 @@ public:
     x = draw_text(x, fps);
     x += _font.width() * 2;
     x = draw_text(x, boost::str(boost::format("%3d") %
-                                static_cast<int>(current_pixel_color.r)));
+                                static_cast<int>(current_pixel_color.red)));
     x += _font.width();
     x = draw_text(x,
                   boost::str(boost::format("%5f") % current_pixel_color.value));
@@ -109,7 +109,7 @@ class Display {
   SDLRenderer _renderer;
 
   SDLSize _screen_pixel_size;
-  SDL_Rect _screen_rect{};
+  SDLRect _screen_rect;
 
   Statusbar _statusbar;
 
@@ -140,10 +140,7 @@ public:
             {.width = window_display_width * _window.display_scale(),
              .height = window_display_height * _window.display_scale()}),
 
-        _screen_rect({.x = 0,
-                      .y = 0,
-                      .w = _screen_pixel_size.width,
-                      .h = _screen_pixel_size.height}),
+        _screen_rect({.x = 0, .y = 0}, _screen_pixel_size),
         _statusbar(16, _window, _renderer),
         _screen_texture(_renderer.create_texture(_screen_pixel_size,
                                                  SDL_TEXTUREACCESS_STREAMING,
@@ -201,15 +198,16 @@ public:
           texture_lock.set_i_rgba(index, SDLColor::transparent);
         else {
           auto color = pixel.color();
-          texture_lock.set_i_rgba(index,
-                                  {.r = color.r, .g = color.g, .b = color.b});
-          _pixel_histogram.count_value(color.r);
+          texture_lock.set_i_rgba(
+              index,
+              {.red = color.red, .green = color.green, .blue = color.blue});
+          _pixel_histogram.count_value(color.red);
         }
       }
     }
     _renderer.copy_to(_screen_texture, _screen_rect);
     auto [x, y] = _window.pixel_mouse_pos();
-    auto color = _pixels_ptr->at(_screen_rect.w * y + x).color();
+    auto color = _pixels_ptr->at(_screen_rect.width * y + x).color();
     _statusbar.draw(_pixel_histogram, color);
   }
 

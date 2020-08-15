@@ -29,11 +29,24 @@ struct SDLSize {
   int height = 0;
 };
 
+struct SDLRect {
+  int x = 0;
+  int y = 0;
+  int width = 0;
+  int height = 0;
+
+  SDLRect(SDLPoint top_left, SDLSize size)
+      : x(top_left.x), y(top_left.y), width(size.width), height(size.height){};
+
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+  SDL_Rect *sdl_ptr() { return reinterpret_cast<SDL_Rect *>(this); }
+};
+
 struct SDLColor {
-  Uint8 r = 0;
-  Uint8 g = 0;
-  Uint8 b = 0;
-  Uint8 a = SDL_ALPHA_OPAQUE;
+  Uint8 red = 0;
+  Uint8 green = 0;
+  Uint8 blue = 0;
+  Uint8 alpha = SDL_ALPHA_OPAQUE;
 
   static SDLColor transparent;
 };
@@ -183,16 +196,6 @@ public:
     return size;
   }
 
-  void to_viewport(SDL_Rect &viewport,
-                   const std::function<void(SDLRenderer &)> &callback) {
-
-    if (SDL_RenderSetViewport(_renderer_sdl_ptr, &viewport) != 0)
-      sdl_error("Could not set render viewport");
-    callback(*this);
-    if (SDL_RenderSetViewport(_renderer_sdl_ptr, nullptr) != 0)
-      sdl_error("Could not reset render viewport");
-  }
-
   void to_texture(SDLTexture &texture,
                   const std::function<void(SDLRenderer &)> &callback) {
 
@@ -209,14 +212,14 @@ public:
                             SDL_BlendMode blend_mode = SDL_BLENDMODE_NONE);
 
   void fill_rect(const SDL_Rect &rect, SDLColor color) {
-    SDL_SetRenderDrawColor(_renderer_sdl_ptr, color.r, color.g, color.b,
-                           color.a);
+    SDL_SetRenderDrawColor(_renderer_sdl_ptr, color.red, color.green,
+                           color.blue, color.alpha);
     SDL_RenderFillRect(_renderer_sdl_ptr, &rect);
   }
 
-  void copy_to(SDLTexture &texture, SDL_Rect target_rect) {
+  void copy_to(SDLTexture &texture, SDLRect target_rect) {
     if (SDL_RenderCopy(_renderer_sdl_ptr, texture.sdl_ptr(), nullptr,
-                       &target_rect) != 0)
+                       target_rect.sdl_ptr()) != 0)
       sdl_error("Could not copy background texture");
   }
 
@@ -305,14 +308,14 @@ public:
     }
   }
 
-  void set_xy_rgba(int x, int y, const SDLColor &color) {
-    _texture_span[x + (y * _width)] =
-        SDL_MapRGBA(_pixel_format_sdl_ptr, color.r, color.g, color.b, color.a);
+  void set_xy_rgba(const SDLPoint point, const SDLColor color) {
+    _texture_span[point.x + (point.y * _width)] = SDL_MapRGBA(
+        _pixel_format_sdl_ptr, color.red, color.green, color.blue, color.alpha);
   }
 
-  void set_i_rgba(int i, const SDLColor &color) {
-    _texture_span[i] =
-        SDL_MapRGBA(_pixel_format_sdl_ptr, color.r, color.g, color.b, color.a);
+  void set_i_rgba(int i, const SDLColor color) {
+    _texture_span[i] = SDL_MapRGBA(_pixel_format_sdl_ptr, color.red,
+                                   color.green, color.blue, color.alpha);
   }
 };
 
@@ -322,7 +325,8 @@ class SDLFont {
   TTF_Font *_font_sdl_ptr = nullptr;
 
   [[nodiscard]] static SDL_Color _sdl_color(const SDLColor color) {
-    return {.r = color.r, .g = color.g, .b = color.b, .a = color.a};
+    return {
+        .r = color.red, .g = color.green, .b = color.blue, .a = color.alpha};
   }
 
   int _height;
@@ -366,7 +370,8 @@ public:
   };
 
   int text_shaded(SDLRenderer &renderer, const std::string &text,
-                  SDLColor color, SDLColor bgcolor, int x, int y) {
+                  const SDLColor color, const SDLColor bgcolor,
+                  const SDLPoint top_left) {
     if (text.empty())
       return 0;
 
@@ -378,7 +383,8 @@ public:
     SDLTexture text_texture = renderer.create_texture(text_surface_ptr);
     int width = text_surface_ptr->w;
 
-    SDL_Rect target_rect{.x = x, .y = y, .w = width, .h = text_surface_ptr->h};
+    SDLRect target_rect(top_left,
+                        {.width = width, .height = text_surface_ptr->h});
 
     renderer.copy_to(text_texture, target_rect);
 
