@@ -91,8 +91,14 @@ public:
     x += _font.width() * 2;
     x = draw_text(x, fps);
     x += _font.width() * 2;
-    x = draw_text(x, boost::str(boost::format("%d") %
+    x = draw_text(x, boost::str(boost::format("%3d") %
                                 static_cast<int>(current_pixel_color.r)));
+    x += _font.width();
+    x = draw_text(x,
+                  boost::str(boost::format("%5f") % current_pixel_color.value));
+    x += _font.width();
+    x = draw_text(
+        x, boost::str(boost::format("%5f") % current_pixel_color.variance));
   }
 };
 

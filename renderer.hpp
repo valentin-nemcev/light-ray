@@ -260,19 +260,26 @@ struct PixelColor {
   Uint8 r;
   Uint8 g;
   Uint8 b;
+  double value;
+  double variance;
 };
 
 struct CameraPixel {
 private:
-  double _value_sum = 0;
+  double _value = 0;
+  double _squared_error_sum = 0;
   unsigned _iterations = 0;
 
   std::optional<PixelColor> _color;
 
   static constexpr double gamma = 1 / 1.5;
 
-  [[nodiscard]] double _value() const {
-    return std::pow(_value_sum / (double)_iterations, gamma);
+  [[nodiscard]] static double _gamma_correct(double value) {
+    return std::pow(value, gamma);
+  }
+
+  [[nodiscard]] double _variance() const {
+    return _squared_error_sum / (_iterations - 1);
   }
 
 public:
@@ -280,15 +287,19 @@ public:
   [[nodiscard]] unsigned iterations() const { return _iterations; }
 
   void add(double value) {
-    _value_sum += value;
     _iterations++;
+    auto prev_value = _value;
+    _value += (value - _value) / _iterations;
+    _squared_error_sum += (value - prev_value) * (value - _value);
     _color.reset();
   }
 
   [[nodiscard]] PixelColor color() {
     if (!_color) {
-      Uint8 w = static_cast<Uint8>(std::clamp(255.0 * _value(), 0.0, 255.0));
-      _color = {.r = w, .g = w, .b = w};
+      auto value = _gamma_correct(_value);
+      Uint8 w = static_cast<Uint8>(std::clamp(255.0 * value, 0.0, 255.0));
+      _color = {
+          .r = w, .g = w, .b = w, .value = _value, .variance = _variance()};
     }
     return _color.value();
   }

@@ -12,41 +12,47 @@ int main(int /*argc*/, char * /*args*/[]) {
 
   std::uniform_real_distribution<double> r_coeff(0, 1);
 
-  double sum = 0;
-  double sumdiv = 0;
-  float fsum = 0;
-  float fsumdiv = 0;
+  double naive_sum_d = 0;
+  double div_first_avg_d = 0;
+  float naive_sum_f = 0;
+  float div_first_avg_f = 0;
 
-  float sumk = 0;
-  float c = 0.0;
+  float kahan_sum_f = 0;
+  float kahan_sum_error_f = 0.0;
+
+  float welford_avg_f = 0.0;
 
   for (unsigned long i = 0; i < iterations; i++) {
     double coeff = r_coeff(random_engine);
-    sum += coeff;
-    sumdiv += coeff / (double)iterations;
-    fsum += (float)coeff;
-    fsumdiv += (float)coeff / (float)iterations;
+    naive_sum_d += coeff;
+    div_first_avg_d += coeff / (double)iterations;
+    naive_sum_f += (float)coeff;
+    div_first_avg_f += (float)coeff / (float)iterations;
 
-    float y = (float)coeff - c;
-    float t = sumk + y;
-    c = (t - sumk) - y;
-    sumk = t;
+    float y = (float)coeff - kahan_sum_error_f;
+    float t = kahan_sum_f + y;
+    kahan_sum_error_f = (t - kahan_sum_f) - y;
+    kahan_sum_f = t;
+
+    auto n = i + 1;
+    welford_avg_f += ((float)coeff - welford_avg_f) / (float)n;
   }
 
-  std::cout << "Double result:      " << sum << std::endl;
-  std::cout << "Float result:       " << fsum << std::endl;
-  std::cout << "Float kahan result: " << sumk << std::endl;
+  std::cout << "Naive sum (double): " << naive_sum_d << std::endl;
+  std::cout << "Naive sum (float):  " << naive_sum_f << std::endl;
+  std::cout << "Kahan sum (float):  " << kahan_sum_f << std::endl;
 
-  sum /= (double)iterations;
-  fsum /= (float)iterations;
-  sumk /= (float)iterations;
+  double naive_avg_d = naive_sum_d / (double)iterations;
+  float naive_avg_f = naive_sum_f / (float)iterations;
+  float kahan_avg_f = kahan_sum_f / (float)iterations;
 
   std::cout << std::endl;
-  std::cout << "Double result:      " << sum << std::endl;
-  std::cout << "Double div result:  " << sum << std::endl;
+  std::cout << "Naive average (double):     " << naive_avg_d << std::endl;
+  std::cout << "Div first average (double): " << div_first_avg_d << std::endl;
 
   std::cout.precision(std::numeric_limits<float>::max_digits10);
-  std::cout << "Float result:       " << fsum << std::endl;
-  std::cout << "Float div result:   " << fsumdiv << std::endl;
-  std::cout << "Float kahan result: " << sumk << std::endl;
+  std::cout << "Naive average (float):      " << naive_avg_f << std::endl;
+  std::cout << "Div first average (float):  " << div_first_avg_f << std::endl;
+  std::cout << "Kahan average (float):      " << kahan_avg_f << std::endl;
+  std::cout << "Welford average (float):    " << welford_avg_f << std::endl;
 }
