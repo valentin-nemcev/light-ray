@@ -79,7 +79,8 @@ public:
 
   void clear() { _renderer.fill_rect(_padded_rect, _bgcolor); }
 
-  void draw(Histogram &pixel_histogram, PixelColor &current_pixel_color) {
+  void draw(Histogram &pixel_histogram,
+            std::optional<PixelColor> current_pixel_color) {
     _fps_counter.increment();
 
     auto fps = _fps_counter.per_second();
@@ -90,15 +91,18 @@ public:
     x = draw_histogram(x, pixel_histogram);
     x += _font.width() * 2;
     x = draw_text(x, fps);
+
+    if (!current_pixel_color)
+      return;
     x += _font.width() * 2;
     x = draw_text(x, boost::str(boost::format("%3d") %
-                                static_cast<int>(current_pixel_color.red)));
-    x += _font.width();
-    x = draw_text(x,
-                  boost::str(boost::format("%5f") % current_pixel_color.value));
+                                static_cast<int>(current_pixel_color->red)));
     x += _font.width();
     x = draw_text(
-        x, boost::str(boost::format("%5f") % current_pixel_color.variance));
+        x, boost::str(boost::format("%5f") % current_pixel_color->value));
+    x += _font.width();
+    x = draw_text(
+        x, boost::str(boost::format("%5f") % current_pixel_color->variance));
   }
 };
 
@@ -108,7 +112,6 @@ class Display {
   SDLWindow _window;
   SDLRenderer _renderer;
 
-  SDLSize _screen_pixel_size;
   SDLRect _screen_rect;
 
   Statusbar _statusbar;
@@ -136,17 +139,16 @@ public:
                                    display_index)),
         _renderer(_window.create_renderer()),
 
-        _screen_pixel_size(
+        _screen_rect(
+            {.x = 0, .y = 0},
             {.width = window_display_width * _window.display_scale(),
              .height = window_display_height * _window.display_scale()}),
-
-        _screen_rect({.x = 0, .y = 0}, _screen_pixel_size),
         _statusbar(16, _window, _renderer),
-        _screen_texture(_renderer.create_texture(_screen_pixel_size,
+        _screen_texture(_renderer.create_texture(_screen_rect.size(),
                                                  SDL_TEXTUREACCESS_STREAMING,
                                                  SDL_BLENDMODE_BLEND)),
         _background_texture(_renderer.create_texture(
-            _screen_pixel_size, SDL_TEXTUREACCESS_TARGET)) {
+            _screen_rect.size(), SDL_TEXTUREACCESS_TARGET)) {
     fill_background(_background_texture);
     draw_screen();
     update();
@@ -206,12 +208,16 @@ public:
       }
     }
     _renderer.copy_to(_screen_texture, _screen_rect);
-    auto [x, y] = _window.pixel_mouse_pos();
-    auto color = _pixels_ptr->at(_screen_rect.width * y + x).color();
+    auto mouse_pos = _window.pixel_mouse_pos();
+    auto color =
+        _screen_rect.contains(mouse_pos)
+            ? std::optional<PixelColor>(
+                  _pixels_ptr->at(mouse_pos.index(_screen_rect.size())).color())
+            : std::nullopt;
     _statusbar.draw(_pixel_histogram, color);
   }
 
-  SDLSize screen_dimensions() { return _screen_pixel_size; }
+  SDLSize screen_dimensions() { return _screen_rect.size(); }
 
   void update() {
     SDL_Event event;

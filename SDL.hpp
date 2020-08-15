@@ -19,14 +19,21 @@ static void ttf_error(std::string message) {
       boost::str(boost::format("%s: %s\n") % message % TTF_GetError()));
 }
 
-struct SDLPoint {
-  int x = 0;
-  int y = 0;
-};
-
 struct SDLSize {
   int width = 0;
   int height = 0;
+};
+
+struct SDLPoint {
+  int x = 0;
+  int y = 0;
+
+  [[nodiscard]] int index(const SDLSize size) const {
+    return x + y * size.width;
+  }
+
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+  SDL_Point *sdl_ptr() { return reinterpret_cast<SDL_Point *>(this); }
 };
 
 struct SDLRect {
@@ -40,6 +47,14 @@ struct SDLRect {
 
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
   SDL_Rect *sdl_ptr() { return reinterpret_cast<SDL_Rect *>(this); }
+
+  [[nodiscard]] SDLSize size() const {
+    return {.width = width, .height = height};
+  }
+
+  [[nodiscard]] bool contains(SDLPoint point) {
+    return SDL_PointInRect(point.sdl_ptr(), sdl_ptr()) == SDL_TRUE;
+  }
 };
 
 struct SDLColor {
