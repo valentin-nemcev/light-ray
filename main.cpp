@@ -157,8 +157,8 @@ Scene create_scene() {
 
   scene.push_back(std::make_unique<Object>(
       std::make_unique<SkyShape>(),
-      std::make_unique<SkySurface>(Vector3d(-4, 6, 4), deg_to_rad(15 /*0.53*/),
-                                   25, 0.25)));
+      std::make_unique<SkySurface>(Vector3d(-4, 6, 4), deg_to_rad(0.53), 25000,
+                                   0.25)));
   return scene;
 }
 

@@ -256,12 +256,13 @@ public:
 using Scene = std::vector<std::unique_ptr<Object>>;
 using SceneRef = const std::vector<std::unique_ptr<Object>> &;
 
-struct PixelColor {
+struct PixelDisplayValue {
   Uint8 red;
   Uint8 green;
   Uint8 blue;
   double value;
-  double variance;
+  double ci;
+  unsigned iterations;
 };
 
 struct CameraPixel {
@@ -270,7 +271,7 @@ private:
   double _squared_error_sum = 0;
   unsigned _iterations = 0;
 
-  std::optional<PixelColor> _color;
+  std::optional<PixelDisplayValue> _display_value;
 
   static constexpr double gamma = 1 / 1.5;
 
@@ -278,8 +279,11 @@ private:
     return std::pow(value, gamma);
   }
 
-  [[nodiscard]] double _variance() const {
-    return _squared_error_sum / (_iterations - 1);
+  [[nodiscard]] double _ci() const {
+    double std_error =
+        std::sqrt((_squared_error_sum / (_iterations - 1)) / _iterations);
+    double z_99 = 2.575829303549;
+    return std_error * z_99;
   }
 
 public:
@@ -291,20 +295,23 @@ public:
     auto prev_value = _value;
     _value += (value - _value) / _iterations;
     _squared_error_sum += (value - prev_value) * (value - _value);
-    _color.reset();
+    _display_value.reset();
   }
 
-  [[nodiscard]] PixelColor color() {
-    if (!_color) {
+  [[nodiscard]] PixelDisplayValue display_value() {
+    if (!_display_value) {
       auto value = _gamma_correct(_value);
       Uint8 w = static_cast<Uint8>(std::clamp(255.0 * value, 0.0, 255.0));
-      _color = {.red = w,
-                .green = w,
-                .blue = w,
-                .value = _value,
-                .variance = _variance()};
+      _display_value = {
+          .red = w,
+          .green = w,
+          .blue = w,
+          .value = _value,
+          .ci = _ci(),
+          .iterations = _iterations,
+      };
     }
-    return _color.value();
+    return _display_value.value();
   }
 
   static Vector2i index_to_coord(const unsigned index, const unsigned width) {
@@ -383,7 +390,7 @@ class Renderer {
   [[nodiscard]] static double _trace(SceneRef scene, const Camera &camera,
                                      const unsigned pixel_index) {
     Ray ray = _emit(camera, pixel_index);
-    RayTermination result{.value = -1};
+    RayTermination result{.value = 0};
 
     const Object *prev_object_ptr = nullptr;
     constexpr int max_bounces = 16;
@@ -436,12 +443,9 @@ class Renderer {
 public:
   static unsigned render_pixel(SceneRef scene, const Camera &camera,
                                CameraPixel &pixel, const unsigned pixel_index) {
-    const unsigned target_iterations = std::pow(2, 12);
     const unsigned chunk_target_iterations = 256;
     unsigned i = 0;
-    for (i = 0; i <= chunk_target_iterations &&
-                pixel.iterations() <= target_iterations;
-         i++)
+    for (i = 0; i <= chunk_target_iterations; i++)
       pixel.add(_trace(scene, camera, pixel_index));
     return i;
   }

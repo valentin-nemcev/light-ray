@@ -36,7 +36,7 @@ public:
   Statusbar(int font_display_size, SDLWindow &window, SDLRenderer &renderer)
       : _renderer(renderer),
         _font_size(font_display_size * window.display_scale()),
-        _font("../vera_mono.ttf", _font_size),
+        _font("../liberation_mono.ttf", _font_size),
         _padding(display_padding * window.display_scale()),
         _padded_rect({.x = 0,
                       .y = window.pixel_size().height,
@@ -80,7 +80,7 @@ public:
   void clear() { _renderer.fill_rect(_padded_rect, _bgcolor); }
 
   void draw(Histogram &pixel_histogram,
-            std::optional<PixelColor> current_pixel_color) {
+            std::optional<PixelDisplayValue> current_pixel_display_value) {
     _fps_counter.increment();
 
     auto fps = _fps_counter.per_second();
@@ -92,17 +92,21 @@ public:
     x += _font.width() * 2;
     x = draw_text(x, fps);
 
-    if (!current_pixel_color)
+    if (!current_pixel_display_value)
       return;
     x += _font.width() * 2;
-    x = draw_text(x, boost::str(boost::format("%3d") %
-                                static_cast<int>(current_pixel_color->red)));
-    x += _font.width();
     x = draw_text(
-        x, boost::str(boost::format("%5f") % current_pixel_color->value));
+        x, boost::str(boost::format("%3d") %
+                      static_cast<int>(current_pixel_display_value->red)));
     x += _font.width();
+    x = draw_text(x, boost::str(boost::format("%5f") %
+                                current_pixel_display_value->value));
+    x = draw_text(x, "\xB1");
     x = draw_text(
-        x, boost::str(boost::format("%5f") % current_pixel_color->variance));
+        x, boost::str(boost::format("%5f") % current_pixel_display_value->ci));
+    x += _font.width();
+    x = draw_text(x, boost::str(boost::format("%d") %
+                                current_pixel_display_value->iterations));
   }
 };
 
@@ -199,22 +203,23 @@ public:
         if (pixel.empty())
           texture_lock.set_i_rgba(index, SDLColor::transparent);
         else {
-          auto color = pixel.color();
-          texture_lock.set_i_rgba(
-              index,
-              {.red = color.red, .green = color.green, .blue = color.blue});
-          _pixel_histogram.count_value(color.red);
+          auto display_value = pixel.display_value();
+          texture_lock.set_i_rgba(index, {.red = display_value.red,
+                                          .green = display_value.green,
+                                          .blue = display_value.blue});
+          _pixel_histogram.count_value(display_value.red);
         }
       }
     }
     _renderer.copy_to(_screen_texture, _screen_rect);
     auto mouse_pos = _window.pixel_mouse_pos();
-    auto color =
+    auto display_value =
         _screen_rect.contains(mouse_pos)
-            ? std::optional<PixelColor>(
-                  _pixels_ptr->at(mouse_pos.index(_screen_rect.size())).color())
+            ? std::optional<PixelDisplayValue>(
+                  _pixels_ptr->at(mouse_pos.index(_screen_rect.size()))
+                      .display_value())
             : std::nullopt;
-    _statusbar.draw(_pixel_histogram, color);
+    _statusbar.draw(_pixel_histogram, display_value);
   }
 
   SDLSize screen_dimensions() { return _screen_rect.size(); }
