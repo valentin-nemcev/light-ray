@@ -1,5 +1,6 @@
 #pragma once
 
+#include "renderer.hpp"
 #include <algorithm>
 #include <cmath>
 #include <span>
@@ -34,4 +35,35 @@ public:
                    });
     return std::span(_normalized_buckets);
   }
+};
+
+class Statistics {
+
+  unsigned _count = 0;
+  unsigned long _iterations = 0;
+  double _std_dev = 0;
+  Histogram _value_histogram;
+
+public:
+  Statistics()
+      : _value_histogram(16, std::numeric_limits<Uint8>::max() -
+                                 std::numeric_limits<Uint8>::min() + 1) {}
+
+  Histogram &value_histogram() { return _value_histogram; }
+
+  void count_pixel(PixelDisplayValue &pixel) {
+    _count++;
+    _iterations += pixel.iterations;
+    _std_dev += pixel.std_dev;
+    _value_histogram.count_value(pixel.red);
+  };
+
+  [[nodiscard]] unsigned iterations_per_pixel() const {
+    if (_count == 0)
+      return 0;
+
+    return _iterations / _count;
+  }
+
+  [[nodiscard]] double std_dev() const { return _std_dev / _count; }
 };

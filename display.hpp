@@ -5,8 +5,8 @@
 #include <string>
 
 #include "SDL.hpp"
-#include "histogram.hpp"
 #include "renderer.hpp"
+#include "statistics.hpp"
 #include "stopwatch.hpp"
 
 class Statusbar {
@@ -79,7 +79,7 @@ public:
 
   void clear() { _renderer.fill_rect(_padded_rect, _bgcolor); }
 
-  void draw(Histogram &pixel_histogram,
+  void draw(Statistics &pixel_stats,
             std::optional<PixelDisplayValue> current_pixel_display_value) {
     _fps_counter.increment();
 
@@ -88,25 +88,33 @@ public:
     clear();
 
     int x = 0;
-    x = draw_histogram(x, pixel_histogram);
+    x = draw_histogram(x, pixel_stats.value_histogram());
     x += _font.width() * 2;
     x = draw_text(x, fps);
 
-    if (!current_pixel_display_value)
-      return;
     x += _font.width() * 2;
-    x = draw_text(
-        x, boost::str(boost::format("%3d") %
-                      static_cast<int>(current_pixel_display_value->red)));
-    x += _font.width();
-    x = draw_text(x, boost::str(boost::format("%5f") %
-                                current_pixel_display_value->value));
-    x = draw_text(x, "\xB1");
-    x = draw_text(
-        x, boost::str(boost::format("%5f") % current_pixel_display_value->ci));
-    x += _font.width();
     x = draw_text(x, boost::str(boost::format("%d") %
-                                current_pixel_display_value->iterations));
+                                (current_pixel_display_value
+                                     ? current_pixel_display_value->iterations
+                                     : pixel_stats.iterations_per_pixel())));
+    if (current_pixel_display_value) {
+
+      x += _font.width();
+      x = draw_text(
+          x, boost::str(boost::format("%3d") %
+                        static_cast<int>(current_pixel_display_value->red)));
+      x += _font.width();
+      x = draw_text(x, boost::str(boost::format("%4f") %
+                                  current_pixel_display_value->value));
+      x += _font.width();
+      x = draw_text(
+          x, boost::str(boost::format("%4f") %
+                        std::sqrt(current_pixel_display_value->std_dev)));
+    } else {
+      x += _font.width();
+      x = draw_text(x, boost::str(boost::format("%4f") %
+                                  std::sqrt(pixel_stats.std_dev())));
+    }
   }
 };
 
@@ -125,7 +133,7 @@ class Display {
 
   bool _is_running = true;
 
-  Histogram _pixel_histogram;
+  Statistics _pixel_stats;
 
   Pixels *_pixels_ptr = nullptr;
 
@@ -190,7 +198,7 @@ public:
   void draw_pixels() {
     _renderer.copy_to(_background_texture, _screen_rect);
 
-    _pixel_histogram = Histogram(16, 256);
+    _pixel_stats = Statistics();
     {
       SDLTextureLock texture_lock = _screen_texture.lock();
 
@@ -207,7 +215,7 @@ public:
           texture_lock.set_i_rgba(index, {.red = display_value.red,
                                           .green = display_value.green,
                                           .blue = display_value.blue});
-          _pixel_histogram.count_value(display_value.red);
+          _pixel_stats.count_pixel(display_value);
         }
       }
     }
@@ -219,7 +227,7 @@ public:
                   _pixels_ptr->at(mouse_pos.index(_screen_rect.size()))
                       .display_value())
             : std::nullopt;
-    _statusbar.draw(_pixel_histogram, display_value);
+    _statusbar.draw(_pixel_stats, display_value);
   }
 
   SDLSize screen_dimensions() { return _screen_rect.size(); }

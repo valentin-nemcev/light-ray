@@ -261,7 +261,7 @@ struct PixelDisplayValue {
   Uint8 green;
   Uint8 blue;
   double value;
-  double ci;
+  double std_dev;
   unsigned iterations;
 };
 
@@ -279,9 +279,12 @@ private:
     return std::pow(value, gamma);
   }
 
+  [[nodiscard]] double _std_dev() const {
+    return (_squared_error_sum / (_iterations - 1)) / _iterations;
+  }
+
   [[nodiscard]] double _ci() const {
-    double std_error =
-        std::sqrt((_squared_error_sum / (_iterations - 1)) / _iterations);
+    double std_error = std::sqrt(_std_dev());
     double z_99 = 2.575829303549;
     return std_error * z_99;
   }
@@ -307,7 +310,7 @@ public:
           .green = w,
           .blue = w,
           .value = _value,
-          .ci = _ci(),
+          .std_dev = _std_dev(),
           .iterations = _iterations,
       };
     }
