@@ -33,7 +33,7 @@ PREFIX="$(brew --prefix llvm)"
 export CC="$PREFIX/bin/clang"
 export CXX="$PREFIX/bin/clang++"
 export LDFLAGS="-L$PREFIX/lib -Wl,-rpath,$PREFIX/lib"
-
+export CPPFLAGS="-I$PREFIX/include"
 export GPERFTOOLS_LIB_DIR="$(brew --prefix gperftools)/lib"
 
 cd build
@@ -41,6 +41,9 @@ cd build
 if [ ! -z $SETUP ]
 then
   rm -rf ./*
+  conan profile new default --detect --force
+  conan profile update compiler.libcxx=libc++ default
+  conan install -pr default --build=missing ..
   cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=1 ..
   mv compile_commands.json ..
 fi
@@ -49,12 +52,12 @@ cmake --build . --target $TARGET
 
 if [ ! -z $DEBUG ]
 then
-  $PREFIX/bin/lldb -o run ./$TARGET
+  $PREFIX/bin/lldb -o run bin/$TARGET
 elif [ ! -z $PROFILE ]
 then
   export CPUPROFILE=profile.prof
-  ./$TARGET
-  pprof $TARGET $CPUPROFILE
+  bin/$TARGET
+  pprof bin/$TARGET $CPUPROFILE
 else
-  ./$TARGET
+  bin/$TARGET
 fi
