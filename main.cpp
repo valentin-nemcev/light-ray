@@ -94,13 +94,13 @@ class Worker {
   void _render() {
     for (;;) {
       PixelChunk &pixel_chunk = _queue.take_next_chunk(this);
-      unsigned iterations_done = 0;
+      bool did_work = false;
       for (unsigned pixel_index = pixel_chunk.begin_index;
            pixel_index < pixel_chunk.end_index; pixel_index++) {
 
         auto &pixel = _pixels[pixel_index];
-        iterations_done +=
-            Renderer::render_pixel(_scene, _camera, pixel, pixel_index);
+        if (Renderer::render_pixel(_scene, _camera, pixel, pixel_index))
+          did_work = true;
         if (!_is_rendering)
           break;
       }
@@ -108,7 +108,7 @@ class Worker {
       _queue.return_chunk(pixel_chunk);
       if (!_is_rendering)
         break;
-      if (iterations_done == 0)
+      if (!did_work)
         break;
     }
     _is_rendering = false;
@@ -201,7 +201,7 @@ int main(int /*argc*/, char * /*args*/[]) {
 
   Scene scene = create_scene();
 
-  stopwatch("Rendering");
+  stopwatch("Allocating and starting workers");
 
   const auto thread_count = std::thread::hardware_concurrency();
 
@@ -218,13 +218,20 @@ int main(int /*argc*/, char * /*args*/[]) {
     workers.push_back(std::move(worker));
   }
 
+  stopwatch("Rendering");
+  bool is_rendering = true;
   while (display.is_running()) {
-    bool is_rendering = false;
     boost::chrono::thread_clock::duration cpu_duration =
         boost::chrono::nanoseconds::zero();
+    bool rendering_done = true;
     for (auto &worker : workers) {
-      is_rendering = is_rendering || worker->is_rendering();
+      rendering_done = rendering_done && !worker->is_rendering();
       cpu_duration += worker->cpu_duration();
+    }
+
+    if (is_rendering && rendering_done) {
+      is_rendering = false;
+      stopwatch("Idle");
     }
 
     display.set_stats(
@@ -232,16 +239,11 @@ int main(int /*argc*/, char * /*args*/[]) {
             .count());
     display.draw_pixels();
     display.update();
-    if (!is_rendering)
-      break;
   }
 
   for (auto &worker : workers)
     worker->stop_rendering();
   stopwatch.stop();
-
-  while (display.is_running())
-    display.wait_for_event();
 
   return 0;
 }

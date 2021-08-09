@@ -255,11 +255,4 @@ public:
       _is_running = false;
     }
   }
-
-  void wait_for_event() {
-    SDL_Event event;
-    if (SDL_WaitEvent(&event) != 0) {
-      process_event(event);
-    }
-  }
 };

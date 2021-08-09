@@ -444,12 +444,18 @@ class Renderer {
   }
 
 public:
-  static unsigned render_pixel(SceneRef scene, const Camera &camera,
-                               CameraPixel &pixel, const unsigned pixel_index) {
-    const unsigned chunk_target_iterations = 256;
-    unsigned i = 0;
-    for (i = 0; i <= chunk_target_iterations; i++)
+  static bool render_pixel(SceneRef scene, const Camera &camera,
+                           CameraPixel &pixel, const unsigned pixel_index) {
+    const unsigned max_chunk_iterations = 256;
+    const unsigned max_pixel_iterations = 1024;
+
+    bool did_work = false;
+    for (unsigned i = 0;
+         i < max_chunk_iterations && pixel.iterations() < max_pixel_iterations;
+         i++) {
       pixel.add(_trace(scene, camera, pixel_index));
-    return i;
+      did_work = true;
+    }
+    return did_work;
   }
 };
