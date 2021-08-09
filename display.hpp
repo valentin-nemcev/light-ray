@@ -80,7 +80,8 @@ public:
   void clear() { _renderer.fill_rect(_padded_rect, _bgcolor); }
 
   void draw(Statistics &pixel_stats,
-            std::optional<PixelDisplayValue> current_pixel_display_value) {
+            std::optional<PixelDisplayValue> current_pixel_display_value,
+            long cpu_seconds_spent) {
     _fps_counter.increment();
 
     auto fps = _fps_counter.per_second();
@@ -92,6 +93,8 @@ public:
     x += _font.width() * 2;
     x = draw_text(x, fps);
 
+    x += _font.width() * 2;
+    x = draw_text(x, boost::str(boost::format("%ds") % cpu_seconds_spent));
     x += _font.width() * 2;
     x = draw_text(x, boost::str(boost::format("%d") %
                                 (current_pixel_display_value
@@ -134,6 +137,8 @@ class Display {
   bool _is_running = true;
 
   Statistics _pixel_stats;
+
+  long _cpu_seconds_spent = 0;
 
   Pixels *_pixels_ptr = nullptr;
 
@@ -190,6 +195,10 @@ public:
     });
   }
 
+  void set_stats(long cpu_seconds_spent) {
+    _cpu_seconds_spent = cpu_seconds_spent;
+  }
+
   void draw_screen() {
     _renderer.copy_to(_background_texture, _screen_rect);
     _statusbar.clear();
@@ -227,7 +236,7 @@ public:
                   _pixels_ptr->at(mouse_pos.index(_screen_rect.size()))
                       .display_value())
             : std::nullopt;
-    _statusbar.draw(_pixel_stats, display_value);
+    _statusbar.draw(_pixel_stats, display_value, _cpu_seconds_spent);
   }
 
   SDLSize screen_dimensions() { return _screen_rect.size(); }

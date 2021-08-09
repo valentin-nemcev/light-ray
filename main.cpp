@@ -1,6 +1,7 @@
 #include <Eigen/Dense>
 #include <Eigen/src/Core/Matrix.h>
 #include <algorithm>
+#include <boost/chrono.hpp>
 #include <boost/format.hpp>
 #include <csignal>
 #include <iostream>
@@ -87,6 +88,9 @@ class Worker {
   std::thread _thread;
   std::atomic<bool> _is_rendering = false;
 
+  boost::chrono::time_point<boost::chrono::thread_clock> _cpu_start_time;
+  std::atomic<boost::chrono::thread_clock::duration> _cpu_duration{};
+
   void _render() {
     for (;;) {
       PixelChunk &pixel_chunk = _queue.take_next_chunk(this);
@@ -100,6 +104,7 @@ class Worker {
         if (!_is_rendering)
           break;
       }
+      _update_cpu_duration();
       _queue.return_chunk(pixel_chunk);
       if (!_is_rendering)
         break;
@@ -107,6 +112,10 @@ class Worker {
         break;
     }
     _is_rendering = false;
+  }
+
+  void _update_cpu_duration() {
+    _cpu_duration = boost::chrono::thread_clock::now() - _cpu_start_time;
   }
 
 public:
@@ -126,12 +135,17 @@ public:
   void start_rendering() {
     _is_rendering = true;
     _thread = std::thread(&Worker::_render, this);
+    _cpu_start_time = boost::chrono::thread_clock::now();
   }
 
   void stop_rendering() {
     _is_rendering = false;
     if (_thread.joinable())
       _thread.join();
+  }
+
+  boost::chrono::thread_clock::duration cpu_duration() const {
+    return _cpu_duration;
   }
 };
 
@@ -206,8 +220,16 @@ int main(int /*argc*/, char * /*args*/[]) {
 
   while (display.is_running()) {
     bool is_rendering = false;
-    for (auto &worker : workers)
+    boost::chrono::thread_clock::duration cpu_duration =
+        boost::chrono::nanoseconds::zero();
+    for (auto &worker : workers) {
       is_rendering = is_rendering || worker->is_rendering();
+      cpu_duration += worker->cpu_duration();
+    }
+
+    display.set_stats(
+        boost::chrono::duration_cast<boost::chrono::seconds>(cpu_duration)
+            .count());
     display.draw_pixels();
     display.update();
     if (!is_rendering)

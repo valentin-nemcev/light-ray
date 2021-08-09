@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.14)
 project(LightRay)
 
+set(CONAN_SYSTEM_INCLUDES ON) # suppress compiler warnings in header-only libs
+
 include(${CMAKE_BINARY_DIR}/conanbuildinfo.cmake)
 conan_basic_setup()
 
