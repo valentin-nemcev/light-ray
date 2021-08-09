@@ -280,11 +280,11 @@ private:
   }
 
   [[nodiscard]] double _std_dev() const {
-    return (_squared_error_sum / (_iterations - 1)) / _iterations;
+    return std::sqrt(_squared_error_sum / (_iterations - 1));
   }
 
   [[nodiscard]] double _ci() const {
-    double std_error = std::sqrt(_std_dev());
+    double std_error = _std_dev() / std::sqrt(_iterations);
     double z_99 = 2.575829303549;
     return std_error * z_99;
   }
