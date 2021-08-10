@@ -80,7 +80,7 @@ public:
   void clear() { _renderer.fill_rect(_padded_rect, _bgcolor); }
 
   void draw(Statistics &pixel_stats,
-            std::optional<PixelDisplayValue> current_pixel_display_value,
+            std::optional<PixelDisplayValue> current_pixel,
             long cpu_seconds_spent) {
     _fps_counter.increment();
 
@@ -96,28 +96,28 @@ public:
     x += _font.width() * 2;
     x = draw_text(x, boost::str(boost::format("%ds") % cpu_seconds_spent));
     x += _font.width() * 2;
-    x = draw_text(x, boost::str(boost::format("%d") %
-                                (current_pixel_display_value
-                                     ? current_pixel_display_value->iterations
+    x = draw_text(
+        x, boost::str(boost::format("%d") %
+                      (current_pixel ? current_pixel->iterations
                                      : pixel_stats.iterations_per_pixel())));
-    if (current_pixel_display_value) {
 
+    if (current_pixel) {
       x += _font.width();
-      x = draw_text(
-          x, boost::str(boost::format("%3d") %
-                        static_cast<int>(current_pixel_display_value->red)));
-      x += _font.width();
-      x = draw_text(x, boost::str(boost::format("%4f") %
-                                  current_pixel_display_value->value));
-      x += _font.width();
-      x = draw_text(
-          x, boost::str(boost::format("%4f") %
-                        std::sqrt(current_pixel_display_value->std_dev)));
-    } else {
-      x += _font.width();
-      x = draw_text(x, boost::str(boost::format("%4f") %
-                                  std::sqrt(pixel_stats.std_dev())));
+      x = draw_text(x, boost::str(boost::format("%3d") %
+                                  static_cast<int>(current_pixel->red)));
     }
+    x += _font.width();
+    x = draw_text(x, boost::str(boost::format("%5.3f") %
+                                (current_pixel ? current_pixel->value
+                                               : pixel_stats.avg_value())));
+    x += _font.width();
+    x = draw_text(x, boost::str(boost::format("%5.3f") %
+                                (current_pixel ? current_pixel->std_dev
+                                               : pixel_stats.std_dev())));
+    x += _font.width();
+    x = draw_text(x, boost::str(boost::format("%7.5f") %
+                                (current_pixel ? current_pixel->std_error
+                                               : pixel_stats.avg_std_error())));
   }
 };
 

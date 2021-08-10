@@ -41,7 +41,9 @@ class Statistics {
 
   unsigned _count = 0;
   unsigned long _iterations = 0;
-  double _std_dev = 0;
+  double _avg_value = 0;
+  double _avg_variance = 0;
+  double _avg_std_error = 0;
   Histogram _value_histogram;
 
 public:
@@ -54,16 +56,23 @@ public:
   void count_pixel(PixelDisplayValue &pixel) {
     _count++;
     _iterations += pixel.iterations;
-    _std_dev += pixel.std_dev;
+
+    double pixel_weight = double(pixel.iterations) / _iterations;
+    _avg_value += pixel_weight * (pixel.value - _avg_value);
+
+    _avg_variance += pixel_weight * (pixel.variance - _avg_variance);
+
+    _avg_std_error += pixel_weight * (pixel.std_error - _avg_std_error);
+
     _value_histogram.count_value(pixel.red);
   };
 
   [[nodiscard]] unsigned iterations_per_pixel() const {
-    if (_count == 0)
-      return 0;
-
     return _iterations / _count;
   }
 
-  [[nodiscard]] double std_dev() const { return _std_dev / _count; }
+  [[nodiscard]] double avg_value() const { return _avg_value; }
+
+  [[nodiscard]] double std_dev() const { return std::sqrt(_avg_variance); }
+  [[nodiscard]] double avg_std_error() const { return _avg_std_error; }
 };

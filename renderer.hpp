@@ -261,7 +261,9 @@ struct PixelDisplayValue {
   Uint8 green;
   Uint8 blue;
   double value;
+  double variance;
   double std_dev;
+  double std_error;
   unsigned iterations;
 };
 
@@ -277,16 +279,6 @@ private:
 
   [[nodiscard]] static double _gamma_correct(double value) {
     return std::pow(value, gamma);
-  }
-
-  [[nodiscard]] double _std_dev() const {
-    return std::sqrt(_squared_error_sum / (_iterations - 1));
-  }
-
-  [[nodiscard]] double _ci() const {
-    double std_error = _std_dev() / std::sqrt(_iterations);
-    double z_99 = 2.575829303549;
-    return std_error * z_99;
   }
 
 public:
@@ -305,12 +297,19 @@ public:
     if (!_display_value) {
       auto value = _gamma_correct(_value);
       Uint8 w = static_cast<Uint8>(std::clamp(255.0 * value, 0.0, 255.0));
+
+      double variance = _squared_error_sum / (_iterations - 1);
+      double std_dev = std::sqrt(variance);
+      double std_error = std_dev / std::sqrt(_iterations);
+
       _display_value = {
           .red = w,
           .green = w,
           .blue = w,
           .value = _value,
-          .std_dev = _std_dev(),
+          .variance = variance,
+          .std_dev = std_dev,
+          .std_error = std_error,
           .iterations = _iterations,
       };
     }
@@ -447,7 +446,7 @@ public:
   static bool render_pixel(SceneRef scene, const Camera &camera,
                            CameraPixel &pixel, const unsigned pixel_index) {
     const unsigned max_chunk_iterations = 256;
-    const unsigned max_pixel_iterations = 1024;
+    const unsigned max_pixel_iterations = 1024 * 4;
 
     bool did_work = false;
     for (unsigned i = 0;
