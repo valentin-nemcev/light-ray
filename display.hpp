@@ -231,9 +231,9 @@ public:
     _renderer.copy_to(_screen_texture, _screen_rect);
     auto mouse_pos = _window.pixel_mouse_pos();
     auto display_value =
-        _screen_rect.contains(mouse_pos)
+        mouse_pos && _screen_rect.contains(*mouse_pos)
             ? std::optional<PixelDisplayValue>(
-                  _pixels_ptr->at(mouse_pos.index(_screen_rect.size()))
+                  _pixels_ptr->at(mouse_pos->index(_screen_rect.size()))
                       .display_value())
             : std::nullopt;
     _statusbar.draw(_pixel_stats, display_value, _cpu_seconds_spent);

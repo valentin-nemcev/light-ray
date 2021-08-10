@@ -7,6 +7,7 @@
 #include <SDL_render.h>
 #include <boost/format.hpp>
 #include <iostream>
+#include <optional>
 #include <span>
 
 static void sdl_error(std::string message) {
@@ -160,7 +161,11 @@ public:
                       size.height / display_scale());
   }
 
-  [[nodiscard]] SDLPoint pixel_mouse_pos() const {
+  [[nodiscard]] std::optional<SDLPoint> pixel_mouse_pos() const {
+    // mouse is outside of the window
+    if (SDL_GetMouseFocus() != _window_sdl_ptr)
+      return {};
+
     SDLPoint point;
     SDL_GetMouseState(&point.x, &point.y);
     point.x *= display_scale();
