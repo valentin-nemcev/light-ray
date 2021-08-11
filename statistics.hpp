@@ -13,8 +13,9 @@ class Histogram {
   int _total_count = 0;
 
   int _value_to_bucket(int value) {
-    return std::clamp<int>(value / (1.0 * _max_value / _buckets.size()), 0,
-                           _max_value);
+    return std::clamp<int>(
+        int(value / (1.0 * double(_max_value) / double(_buckets.size()))), 0,
+        _max_value);
   }
 
 public:
@@ -31,7 +32,7 @@ public:
                    _normalized_buckets.begin(), [&](int value) -> float {
                      return std::pow(static_cast<float>(value) /
                                          static_cast<float>(_total_count),
-                                     1.0 / 4);
+                                     1.0f / 4);
                    });
     return std::span(_normalized_buckets);
   }
@@ -57,7 +58,7 @@ public:
     _count++;
     _iterations += pixel.iterations;
 
-    double pixel_weight = double(pixel.iterations) / _iterations;
+    double pixel_weight = double(pixel.iterations) / double(_iterations);
     _avg_value += pixel_weight * (pixel.value - _avg_value);
 
     _avg_variance += pixel_weight * (pixel.variance - _avg_variance);

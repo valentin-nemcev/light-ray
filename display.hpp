@@ -79,9 +79,9 @@ public:
 
   void clear() { _renderer.fill_rect(_padded_rect, _bgcolor); }
 
-  void draw(Statistics &pixel_stats,
-            std::optional<PixelDisplayValue> current_pixel,
-            long cpu_seconds_spent) {
+  int draw(Statistics &pixel_stats,
+           std::optional<PixelDisplayValue> current_pixel,
+           long cpu_seconds_spent) {
     _fps_counter.increment();
 
     auto fps = _fps_counter.per_second();
@@ -118,6 +118,7 @@ public:
     x = draw_text(x, boost::str(boost::format("%7.5f") %
                                 (current_pixel ? current_pixel->std_error
                                                : pixel_stats.avg_std_error())));
+    return x;
   }
 };
 

@@ -35,6 +35,7 @@ export CXX="$PREFIX/bin/clang++"
 export LDFLAGS="-L$PREFIX/lib -Wl,-rpath,$PREFIX/lib"
 export CPPFLAGS="-I$PREFIX/include"
 export GPERFTOOLS_LIB_DIR="$(brew --prefix gperftools)/lib"
+export CMAKE_CXX_CLANG_TIDY="$(brew --prefix llvm)/bin/clang-tidy;-header-filter=.*"
 
 cd build
 
@@ -42,9 +43,9 @@ if [ ! -z $SETUP ]
 then
   rm -rf ./*
   conan profile new default --detect --force
-  conan profile update compiler.libcxx=libc++ default
+  conan profile update settings.compiler.libcxx=libc++ default
   conan install -pr default --build=missing ..
-  cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=1 ..
+  cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=1 -DCMAKE_CXX_CLANG_TIDY="$CMAKE_CXX_CLANG_TIDY" ..
   mv compile_commands.json ..
 fi
 

@@ -16,7 +16,8 @@ using Eigen::Vector2d;
 using Eigen::Vector2i;
 using Eigen::Vector3d;
 
-Eigen::IOFormat v_fmt(Eigen::StreamPrecision, 0, ", ", ";", "", "", "(", ")");
+const Eigen::IOFormat v_fmt(Eigen::StreamPrecision, 0, ", ", ";", "", "", "(",
+                            ")");
 
 // Coordinate system is right-handed, i.e.
 // direction_forward.cross(direction_left) == direction_up;
@@ -31,7 +32,9 @@ Vector3d reflect(Vector3d const &direction, Vector3d const &normal) {
   return direction - 2 * direction.dot(normal) * normal;
 };
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 std::random_device random_device;
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 static thread_local std::mt19937_64 random_engine(random_device());
 
 Vector3d randomly_rotated(const Vector3d &vector) {
@@ -340,9 +343,9 @@ public:
   const Vector3d camera_right, camera_up;
   Pixels pixels;
 
-  Camera(Vector3d pos, Vector3d target, Vector2i image_size)
-      : pos(std::move(pos)), target(std::move(target)),
-        image_size(std::move(image_size)),
+  Camera(Vector3d pos_p, Vector3d target_p, Vector2i image_size_p)
+      : pos(std::move(pos_p)), target(std::move(target_p)),
+        image_size(std::move(image_size_p)),
         aspect_ratio(static_cast<double>(image_size.x()) / image_size.y()),
         direction((target - pos).normalized()),
 

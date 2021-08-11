@@ -64,10 +64,10 @@ struct SDLColor {
   Uint8 blue = 0;
   Uint8 alpha = SDL_ALPHA_OPAQUE;
 
-  static SDLColor transparent;
+  static const SDLColor transparent;
 };
 
-SDLColor SDLColor::transparent = {0, 0, 0, SDL_ALPHA_TRANSPARENT};
+const SDLColor SDLColor::transparent = {0, 0, 0, SDL_ALPHA_TRANSPARENT};
 
 class SDLWindow;
 
@@ -333,7 +333,7 @@ public:
         _pixel_format_sdl_ptr, color.red, color.green, color.blue, color.alpha);
   }
 
-  void set_i_rgba(int i, const SDLColor color) {
+  void set_i_rgba(size_t i, const SDLColor color) {
     _texture_span[i] = SDL_MapRGBA(_pixel_format_sdl_ptr, color.red,
                                    color.green, color.blue, color.alpha);
   }
