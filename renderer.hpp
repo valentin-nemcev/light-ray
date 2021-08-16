@@ -135,7 +135,7 @@ public:
     const double beta =
         std::uniform_real_distribution<double>(0, pi)(random_engine);
 
-    if (random_coefficient() > std::cos(beta))
+    if (random_coefficient() < beta / pi)
       return RayTermination{.value = 0};
 
     Vector3d relative_left(std::fabs(normal.dot(direction_up)) < 1
@@ -460,7 +460,7 @@ public:
   static bool render_pixel(SceneRef scene, const Camera &camera,
                            CameraPixel &pixel, const unsigned pixel_index) {
     const unsigned max_chunk_iterations = 256;
-    const unsigned max_pixel_iterations = 1024 * 4;
+    const unsigned max_pixel_iterations = 1024 * 2;
 
     bool did_work = false;
     for (unsigned i = 0;
