@@ -27,6 +27,9 @@ static const Vector3d direction_up(0, 0, 1);
 
 constexpr auto pi = M_PI;
 constexpr double deg_to_rad(const double deg) { return pi * (deg / 180.0); }
+double solid_angle(const double angle) {
+  return 4 * pi * std::pow(std::sin(angle / 4), 2);
+}
 
 Vector3d reflect(Vector3d const &direction, Vector3d const &normal) {
   return direction - 2 * direction.dot(normal) * normal;
@@ -235,16 +238,23 @@ public:
 
 class SkySurface : public Surface {
 public:
-  const Vector3d sun_direction;
-  const double sun_angular_size_cos;
-  const double sun_brightness;
-  const double sky_brightness;
+  const double total_illuminance = 1;             // 128;
+  const double sky_diffusion_ratio = 0.25;        // 0.01;
+  const double sun_angular_size = deg_to_rad(15); // deg_to_rad(0.53);
 
-  SkySurface(const Vector3d &sun_direction, const double sun_angular_size,
-             const double sun_brightness, const double sky_brightness)
-      : sun_direction(sun_direction.normalized()),
-        sun_angular_size_cos(std::cos(sun_angular_size / 2)),
-        sun_brightness(sun_brightness), sky_brightness(sky_brightness){};
+  const double sun_angular_size_cos = std::cos(sun_angular_size / 2);
+
+  const double sun_illuminance =
+      total_illuminance * (1 - sky_diffusion_ratio) *
+      (0.5 * solid_angle(2 * pi) / solid_angle(sun_angular_size));
+  const double sky_illuminance =
+      total_illuminance * sky_diffusion_ratio *
+      (0.5 / (1 - solid_angle(sun_angular_size) / solid_angle(2 * pi)));
+
+  const Vector3d sun_direction;
+
+  SkySurface(const Vector3d &sun_direction)
+      : sun_direction(sun_direction.normalized()){};
 
   [[nodiscard]] RayIntersection
   intersect_at(const Vector3d & /* point */, const Vector3d & /*normal*/,
@@ -252,7 +262,8 @@ public:
 
     const bool into_sun = direction.dot(sun_direction) > sun_angular_size_cos;
 
-    return RayTermination{.value = into_sun ? sun_brightness : sky_brightness};
+    return RayTermination{.value =
+                              into_sun ? sun_illuminance : sky_illuminance};
   };
 };
 

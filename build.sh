@@ -35,7 +35,7 @@ export CXX="$PREFIX/bin/clang++"
 export LDFLAGS="-L$PREFIX/lib -Wl,-rpath,$PREFIX/lib"
 export CPPFLAGS="-I$PREFIX/include"
 export GPERFTOOLS_LIB_DIR="$(brew --prefix gperftools)/lib"
-export CMAKE_CXX_CLANG_TIDY="$(brew --prefix llvm)/bin/clang-tidy;-header-filter=.*"
+# export CMAKE_CXX_CLANG_TIDY="$(brew --prefix llvm)/bin/clang-tidy;-header-filter=.*"
 
 cd build
 
