@@ -239,7 +239,7 @@ public:
 class SkySurface : public Surface {
 public:
   const double total_illuminance = 1;             // 128;
-  const double sky_diffusion_ratio = 0.25;        // 0.01;
+  const double sky_diffusion_ratio = 0.4;         // 0.01;
   const double sun_angular_size = deg_to_rad(15); // deg_to_rad(0.53);
 
   const double sun_angular_size_cos = std::cos(sun_angular_size / 2);
