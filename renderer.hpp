@@ -71,6 +71,7 @@ double random_coefficient() {
 struct Ray {
   Vector3d origin;
   Vector3d direction;
+  double attenuation = 1;
 
   [[nodiscard]] Vector3d advance(const double distance) const {
     return origin + direction * distance;
@@ -100,9 +101,9 @@ public:
 
 class Surface {
 public:
-  [[nodiscard]] virtual RayIntersection
-  intersect_at(const Vector3d &point, const Vector3d &normal,
-               const Vector3d &direction) const = 0;
+  [[nodiscard]] virtual RayIntersection intersect_at(const Vector3d &point,
+                                                     const Vector3d &normal,
+                                                     const Ray &ray) const = 0;
 
   Surface() = default;
   Surface(const Surface &) = default;
@@ -128,15 +129,12 @@ public:
 
   Diffuse(double blackness) : blackness(blackness){};
 
-  [[nodiscard]] RayIntersection
-  intersect_at(const Vector3d &point, const Vector3d &normal,
-               const Vector3d & /*direction*/) const override {
+  [[nodiscard]] RayIntersection intersect_at(const Vector3d &point,
+                                             const Vector3d &normal,
+                                             const Ray &ray) const override {
 
     const double beta =
         std::uniform_real_distribution<double>(0, pi)(random_engine);
-
-    if (random_coefficient() < beta / pi)
-      return RayTermination{.value = 0};
 
     Vector3d relative_left(std::fabs(normal.dot(direction_up)) < 1
                                ? direction_up.cross(normal)
@@ -151,7 +149,9 @@ public:
                             std::sin(beta) * std::cos(alpha) * relative_left +
                             std::cos(beta) * normal)
                                .normalized();
-    return Ray{.origin = point, .direction = reflected};
+    return Ray{.origin = point,
+               .direction = reflected,
+               .attenuation = ray.attenuation * (1 - beta / pi)};
   };
 };
 
@@ -161,16 +161,16 @@ public:
 
   Reflective(double blackness) : blackness(blackness){};
 
-  [[nodiscard]] RayIntersection
-  intersect_at(const Vector3d &point, const Vector3d &normal,
-               const Vector3d &direction) const override {
+  [[nodiscard]] RayIntersection intersect_at(const Vector3d &point,
+                                             const Vector3d &normal,
+                                             const Ray &ray) const override {
 
     if (random_coefficient() > blackness)
       return RayTermination{.value = 0};
 
     Vector3d surface_normal = randomly_rotated(normal);
     return Ray{.origin = point,
-               .direction = reflect(direction, surface_normal)};
+               .direction = reflect(ray.direction, surface_normal)};
   };
 };
 
@@ -256,14 +256,16 @@ public:
   SkySurface(const Vector3d &sun_direction)
       : sun_direction(sun_direction.normalized()){};
 
-  [[nodiscard]] RayIntersection
-  intersect_at(const Vector3d & /* point */, const Vector3d & /*normal*/,
-               const Vector3d &direction) const override {
+  [[nodiscard]] RayIntersection intersect_at(const Vector3d & /* point */,
+                                             const Vector3d & /*normal*/,
+                                             const Ray &ray) const override {
 
-    const bool into_sun = direction.dot(sun_direction) > sun_angular_size_cos;
+    const bool into_sun =
+        ray.direction.dot(sun_direction) > sun_angular_size_cos;
 
     return RayTermination{.value =
-                              into_sun ? sun_illuminance : sky_illuminance};
+                              ray.attenuation *
+                              (into_sun ? sun_illuminance : sky_illuminance)};
   };
 };
 
@@ -403,13 +405,14 @@ class Renderer {
     return std::make_pair(closest_distance, closest_object_ptr);
   }
 
-  [[nodiscard]] static double _trace(SceneRef scene, const Camera &camera,
-                                     const unsigned pixel_index) {
-    Ray ray = _emit(camera, pixel_index);
+  static void _trace(SceneRef scene, CameraPixel &pixel,
+                     const unsigned pixel_index, Ray ray) {
     RayTermination result{.value = 0};
 
     const Object *prev_object_ptr = nullptr;
     constexpr int max_bounces = 16;
+    constexpr double min_attenuation = 1e-03;
+
     for (int bounce = 0; bounce < max_bounces; bounce++) {
       auto [distance, object] =
           _closest_intersecting_object(scene, prev_object_ptr, ray);
@@ -424,23 +427,21 @@ class Renderer {
 
       const Vector3d point = ray.advance(distance);
       const Vector3d normal = object->shape->normal_at(point);
-      const RayIntersection this_intersection =
-          object->surface->intersect_at(point, normal, ray.direction);
+      const RayIntersection intersection =
+          object->surface->intersect_at(point, normal, ray);
 
       if (const auto *termination_ptr =
-              std::get_if<RayTermination>(&this_intersection)) {
+              std::get_if<RayTermination>(&intersection)) {
         result = *termination_ptr;
         break;
       }
-      if (const auto *const bounced_ray_ptr =
-              std::get_if<Ray>(&this_intersection)) {
+      if (const auto *const bounced_ray_ptr = std::get_if<Ray>(&intersection)) {
         ray = *bounced_ray_ptr;
       }
-      if (bounce == max_bounces - 1)
-        _log_message(
-            pixel_index,
-            (boost::format("Max bounces reached, last distance: %e") % distance)
-                .str());
+      if (ray.attenuation < min_attenuation) {
+        result = RayTermination({.value = 0});
+        break;
+      }
     }
 
     if (result.value < 0)
@@ -448,7 +449,7 @@ class Renderer {
           pixel_index,
           (boost::format("Negative pixel value: %e") % result.value).str());
 
-    return result.value;
+    pixel.add(result.value);
   }
 
   static void _log_message(const unsigned pixel_index,
@@ -466,7 +467,8 @@ public:
     for (unsigned i = 0;
          i < max_chunk_iterations && pixel.iterations() < max_pixel_iterations;
          i++) {
-      pixel.add(_trace(scene, camera, pixel_index));
+      Ray ray = _emit(camera, pixel_index);
+      _trace(scene, pixel, pixel_index, ray);
       did_work = true;
     }
     return did_work;
