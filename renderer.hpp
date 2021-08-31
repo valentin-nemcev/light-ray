@@ -133,25 +133,27 @@ public:
                                              const Vector3d &normal,
                                              const Ray &ray) const override {
 
-    const double beta =
-        std::uniform_real_distribution<double>(0, pi)(random_engine);
-
     Vector3d relative_left(std::fabs(normal.dot(direction_up)) < 1
                                ? direction_up.cross(normal)
                                : direction_left);
     relative_left.normalize();
     const Vector3d relative_up(normal.cross(relative_left));
 
-    const double alpha =
-        std::uniform_real_distribution<double>(0, 2 * pi)(random_engine);
+    const auto alpha =
+        std::uniform_real_distribution<float>(0, 2 * pi)(random_engine);
 
-    const auto reflected = (std::sin(beta) * std::sin(alpha) * relative_up +
-                            std::sin(beta) * std::cos(alpha) * relative_left +
-                            std::cos(beta) * normal)
-                               .normalized();
+    const auto beta_cos =
+        std::uniform_real_distribution<float>(0, 1)(random_engine);
+    const auto beta = std::acos(beta_cos);
+    const auto beta_sin = std::sin(beta);
+
+    const auto reflected =
+        (beta_sin * std::sin(alpha) * relative_up +
+         beta_sin * std::cos(alpha) * relative_left + beta_cos * normal)
+            .normalized();
     return Ray{.origin = point,
                .direction = reflected,
-               .attenuation = ray.attenuation * (1 - beta / pi)};
+               .attenuation = ray.attenuation * beta_cos};
   };
 };
 

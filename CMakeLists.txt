@@ -18,6 +18,8 @@ if(DEFINED ENV{PROFILE})
 endif()
 
 set(CMAKE_CXX_FLAGS "-std=c++20 -Wall -Wextra -Wpedantic -fdiagnostics-show-template-tree")
+set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-O3 -ffast-math -g -DNDEBUG")
+
 set(CMAKE_POSITION_INDEPENDENT_CODE OFF)
 
 set(CMAKE_BUILD_TYPE RelWithDebInfo)
