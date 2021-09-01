@@ -72,6 +72,7 @@ struct Ray {
   Vector3d origin;
   Vector3d direction;
   double attenuation = 1;
+  double weight = 1;
 
   [[nodiscard]] Vector3d advance(const double distance) const {
     return origin + direction * distance;
@@ -80,6 +81,7 @@ struct Ray {
 
 struct RayTermination {
   double value;
+  double weight;
 };
 
 using RayIntersection = std::variant<RayTermination, Ray>;
@@ -153,7 +155,8 @@ public:
             .normalized();
     return Ray{.origin = point,
                .direction = reflected,
-               .attenuation = ray.attenuation * beta_cos};
+               .attenuation = ray.attenuation * beta_cos,
+               .weight = ray.weight};
   };
 };
 
@@ -168,7 +171,7 @@ public:
                                              const Ray &ray) const override {
 
     if (random_coefficient() > blackness)
-      return RayTermination{.value = 0};
+      return RayTermination{.value = 0, .weight = ray.weight};
 
     Vector3d surface_normal = randomly_rotated(normal);
     return Ray{.origin = point,
@@ -267,7 +270,8 @@ public:
 
     return RayTermination{.value =
                               ray.attenuation *
-                              (into_sun ? sun_illuminance : sky_illuminance)};
+                              (into_sun ? sun_illuminance : sky_illuminance),
+                          .weight = ray.weight};
   };
 };
 
@@ -288,6 +292,7 @@ struct PixelDisplayValue {
 struct CameraPixel {
 private:
   double _value = 0;
+  double _weight_sum = 0;
   double _squared_error_sum = 0;
   unsigned _iterations = 0;
 
@@ -303,11 +308,12 @@ public:
   [[nodiscard]] bool empty() const { return _iterations == 0; }
   [[nodiscard]] unsigned iterations() const { return _iterations; }
 
-  void add(double value) {
+  void add(const double value, double weight) {
     _iterations++;
+    _weight_sum += weight;
     auto prev_value = _value;
-    _value += (value - _value) / _iterations;
-    _squared_error_sum += (value - prev_value) * (value - _value);
+    _value += (weight / _weight_sum) * (value - _value);
+    _squared_error_sum += weight * (value - prev_value) * (value - _value);
     _display_value.reset();
   }
 
@@ -316,7 +322,7 @@ public:
       auto value = _gamma_correct(_value);
       Uint8 w = static_cast<Uint8>(std::clamp(255.0 * value, 0.0, 255.0));
 
-      double variance = _squared_error_sum / (_iterations - 1);
+      double variance = _squared_error_sum / (_weight_sum - 1);
       double std_dev = std::sqrt(variance);
       double std_error = std_dev / std::sqrt(_iterations);
 
@@ -408,50 +414,58 @@ class Renderer {
   }
 
   static void _trace(SceneRef scene, CameraPixel &pixel,
-                     const unsigned pixel_index, Ray ray) {
-    RayTermination result{.value = 0};
+                     const unsigned pixel_index, const Ray &ray,
+                     const int bounce = 0) {
+
+    constexpr int max_bounces = 16;
+    if (bounce == max_bounces) {
+      pixel.add(0, ray.weight);
+      return;
+    }
+    constexpr double min_attenuation = 1e-03;
+    if (ray.attenuation < min_attenuation) {
+      pixel.add(0, ray.weight);
+      return;
+    }
 
     const Object *prev_object_ptr = nullptr;
-    constexpr int max_bounces = 16;
-    constexpr double min_attenuation = 1e-03;
 
-    for (int bounce = 0; bounce < max_bounces; bounce++) {
-      auto [distance, object] =
-          _closest_intersecting_object(scene, prev_object_ptr, ray);
+    auto [distance, object] =
+        _closest_intersecting_object(scene, prev_object_ptr, ray);
 
-      if (object == nullptr) {
-        _log_message(pixel_index,
-                     (boost::format("Nothing hit") % distance).str());
-        break;
-      }
+    if (object == nullptr) {
+      _log_message(pixel_index,
+                   (boost::format("Nothing hit") % distance).str());
+      return;
+    }
 
-      prev_object_ptr = object;
+    prev_object_ptr = object;
 
-      const Vector3d point = ray.advance(distance);
-      const Vector3d normal = object->shape->normal_at(point);
+    const Vector3d point = ray.advance(distance);
+    const Vector3d normal = object->shape->normal_at(point);
+    const int max_scatter = bounce < 1 ? 8 : bounce < 2 ? 4 : 1;
+    for (int ray_index = 0; ray_index < max_scatter; ray_index++) {
+
       const RayIntersection intersection =
           object->surface->intersect_at(point, normal, ray);
 
       if (const auto *termination_ptr =
               std::get_if<RayTermination>(&intersection)) {
-        result = *termination_ptr;
-        break;
+        const auto result = *termination_ptr;
+        pixel.add(result.value, result.weight);
+        if (result.value < 0) {
+          _log_message(
+              pixel_index,
+              (boost::format("Negative pixel value: %e") % result.value).str());
+        }
+        return;
       }
       if (const auto *const bounced_ray_ptr = std::get_if<Ray>(&intersection)) {
-        ray = *bounced_ray_ptr;
-      }
-      if (ray.attenuation < min_attenuation) {
-        result = RayTermination({.value = 0});
-        break;
+        auto bounced_ray = *bounced_ray_ptr;
+        bounced_ray.weight /= max_scatter;
+        _trace(scene, pixel, pixel_index, bounced_ray, bounce + 1);
       }
     }
-
-    if (result.value < 0)
-      _log_message(
-          pixel_index,
-          (boost::format("Negative pixel value: %e") % result.value).str());
-
-    pixel.add(result.value);
   }
 
   static void _log_message(const unsigned pixel_index,
@@ -465,10 +479,10 @@ public:
     const unsigned max_chunk_iterations = 256;
     const unsigned max_pixel_iterations = 1024 * 2;
 
+    const auto max_iterations = std::min(
+        max_pixel_iterations, pixel.iterations() + max_chunk_iterations);
     bool did_work = false;
-    for (unsigned i = 0;
-         i < max_chunk_iterations && pixel.iterations() < max_pixel_iterations;
-         i++) {
+    while (pixel.iterations() < max_iterations) {
       Ray ray = _emit(camera, pixel_index);
       _trace(scene, pixel, pixel_index, ray);
       did_work = true;
